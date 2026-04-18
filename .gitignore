@@ -1,0 +1,18 @@
+node_modules/
+
+# macOS / editor noise
+.DS_Store
+
+# Local Obsidian/plugin runtime state
+data.json
+.hotreload
+
+# Generated test/build output
+.tmp-tests/
+*.map
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

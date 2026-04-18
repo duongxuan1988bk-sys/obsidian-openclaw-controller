@@ -1,0 +1,10 @@
+{
+  "id": "openclaw-controller",
+  "name": "OpenClaw Controller",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "High-end AI Agent Controller for OpenClaw Gateway (WebSocket).",
+  "author": "duongxuan1988bk-sys",
+  "authorUrl": "https://github.com/duongxuan1988bk-sys",
+  "isDesktopOnly": true
+}

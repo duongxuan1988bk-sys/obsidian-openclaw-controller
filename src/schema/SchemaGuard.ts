@@ -1,0 +1,203 @@
+type SchemaContext = {
+  inferredType?: string;
+  moduleHint?: string;
+  activeNotePath?: string;
+  additionalTags?: string[];
+  // Topic chosen by the registry-driven conversion action, e.g. theory:SEC or case:CEX.
+  theoryTopic?: string;
+};
+
+function todayISO(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseFrontmatter(text: string): { fm: string | null; body: string } {
+  const m = text.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { fm: null, body: text };
+  return { fm: m[1], body: text.slice(m[0].length) };
+}
+
+function hasKey(fm: string, key: string): boolean {
+  return new RegExp(`^${key}\\s*:`, "m").test(fm);
+}
+
+function readKey(fm: string, key: string): string {
+  const match = fm.match(new RegExp(`^${key}\\s*:\\s*([^\\n]*)$`, "m"));
+  return match?.[1]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
+}
+
+function dateOnly(value: string): string {
+  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match?.[1] ?? "";
+}
+
+function upsertKey(fm: string, key: string, valueLine: string): string {
+  const re = new RegExp(`^${key}\\s*:[^\\n]*$`, "m");
+  if (re.test(fm)) return fm.replace(re, `${key}: ${valueLine}`);
+  return fm.trimEnd() + `\n${key}: ${valueLine}\n`;
+}
+
+function removeKey(fm: string, key: string): string {
+  return fm.replace(new RegExp(`^${key}\\s*:[^\\n]*\\n?`, "m"), "");
+}
+
+function ensureListKey(fm: string, key: string, tag: string): string {
+  const re = new RegExp(`^${key}\\s*:\\s*\\[(.*?)\\]\\s*$`, "m");
+  const m = fm.match(re);
+  if (!m) {
+    return fm.trimEnd() + `\n${key}: [${tag}]\n`;
+  }
+  const inner = m[1].trim();
+  const items = inner ? inner.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  if (items.includes(tag)) return fm;
+  const next = [...items, tag].join(", ");
+  return fm.replace(re, `${key}: [${next}]`);
+}
+
+function setListKey(fm: string, key: string, tags: string[]): string {
+  const unique = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+  const value = `[${unique.join(", ")}]`;
+  const re = new RegExp(`^${key}\\s*:\\s*.*$`, "m");
+  if (re.test(fm)) return fm.replace(re, `${key}: ${value}`);
+  return fm.trimEnd() + `\n${key}: ${value}\n`;
+}
+
+function readInlineListKey(fm: string, key: string): string[] {
+  const m = fm.match(new RegExp(`^${key}\\s*:\\s*\\[(.*?)\\]\\s*$`, "m"));
+  if (!m) return [];
+  return m[1]
+    .split(",")
+    .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
+    .filter(Boolean);
+}
+
+function removeListItems(fm: string, key: string, blocked: string[]): string {
+  const blockedSet = new Set(blocked.map((item) => item.toLowerCase()));
+  const kept = readInlineListKey(fm, key).filter((item) => !blockedSet.has(item.toLowerCase()));
+  return setListKey(fm, key, kept);
+}
+
+function detectSecMetadata(body: string): { purity?: string; columnType?: string } {
+  const purityMatch =
+    body.match(/purity\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?%)/i) ??
+    body.match(/纯度\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?%)/i);
+  const columnMatch =
+    body.match(/column(?:\s+type)?\s*[:：]?\s*([^\n,，]+)/i) ??
+    body.match(/色谱柱(?:类型)?\s*[:：]?\s*([^\n,，]+)/i);
+  return {
+    purity: purityMatch?.[1]?.trim(),
+    columnType: columnMatch?.[1]?.trim()
+  };
+}
+
+function inferDomain(fm: string, path: string): string {
+  const existing = readKey(fm, "domain").toLowerCase();
+  if (existing) return existing;
+  const normalizedPath = path.toLowerCase();
+  if (normalizedPath.includes("biotech")) return "biotech";
+  if (normalizedPath.includes("openclaw")) return "openclaw";
+  if (normalizedPath.includes("/ai/") || normalizedPath.includes("02ai")) return "ai";
+  if (normalizedPath.includes("general")) return "general";
+  return "general";
+}
+
+export function ensureSchemaFrontmatter(text: string, ctx: SchemaContext): string {
+  const { fm, body } = parseFrontmatter(text);
+  let nextFm = fm ?? "";
+
+  if (!hasKey(nextFm, "status")) nextFm = upsertKey(nextFm, "status", "draft");
+  const dateValue = dateOnly(readKey(nextFm, "date"));
+  const createdValue = dateOnly(readKey(nextFm, "created"));
+  if (hasKey(nextFm, "created") && createdValue) nextFm = upsertKey(nextFm, "created", createdValue);
+  if (!hasKey(nextFm, "created")) nextFm = upsertKey(nextFm, "created", dateValue || todayISO());
+  if (!hasKey(nextFm, "tags")) nextFm = ensureListKey(nextFm, "tags", "OpenClaw");
+
+  const type = (ctx.inferredType ?? "").toLowerCase();
+  const path = ctx.activeNotePath ?? "";
+  const isRawContext = /\/01Raw\//i.test(path);
+  const domain = inferDomain(nextFm, path);
+
+  if (type && !hasKey(nextFm, "type")) nextFm = upsertKey(nextFm, "type", type);
+  // Raw context belongs to the source note only. Generated target notes must
+  // not inherit source-note lifecycle fields or tags.
+  if (isRawContext && !type) nextFm = upsertKey(nextFm, "status", "raw");
+  if (isRawContext && !type) nextFm = ensureListKey(nextFm, "tags", "raw");
+
+  for (const tag of ctx.additionalTags ?? []) {
+    nextFm = ensureListKey(nextFm, "tags", tag);
+  }
+
+  if (type === "case") {
+    const topic = ctx.theoryTopic?.trim();
+    nextFm = upsertKey(nextFm, "type", "case");
+    nextFm = upsertKey(nextFm, "status", "draft");
+    nextFm = upsertKey(nextFm, "domain", domain);
+    nextFm = upsertKey(nextFm, "workflow", domain === "biotech" ? "note_to_case" : "note_to_case_by_domain");
+    if (domain === "biotech" && topic) nextFm = upsertKey(nextFm, "topic", topic);
+    if (domain !== "biotech") nextFm = removeKey(nextFm, "topic");
+    if (!hasKey(nextFm, "problem_type")) nextFm = upsertKey(nextFm, "problem_type", "unspecified");
+    nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
+    nextFm = ensureListKey(nextFm, "tags", "case");
+    nextFm = ensureListKey(nextFm, "tags", domain);
+    if (domain === "biotech" && topic) nextFm = ensureListKey(nextFm, "tags", topic);
+    // Biotech context: SEC analysis module auto-tag
+    if (ctx.moduleHint === "SEC_Analysis") {
+      nextFm = upsertKey(nextFm, "module", "SEC_Analysis");
+    }
+  }
+  if (type === "raw") {
+    nextFm = upsertKey(nextFm, "type", "raw");
+    nextFm = upsertKey(nextFm, "status", "raw");
+    nextFm = ensureListKey(nextFm, "tags", "raw");
+  }
+  if (type === "insight") {
+    nextFm = upsertKey(nextFm, "type", "insight");
+    nextFm = upsertKey(nextFm, "status", "draft");
+    nextFm = upsertKey(nextFm, "domain", domain);
+    nextFm = upsertKey(nextFm, "workflow", "raw_to_insight");
+    nextFm = removeKey(nextFm, "topic");
+    nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
+    nextFm = ensureListKey(nextFm, "tags", "insight");
+    nextFm = ensureListKey(nextFm, "tags", domain);
+  }
+  if (type === "theory") {
+    const topic = ctx.theoryTopic?.trim() || (domain === "biotech" ? "N_Glycan" : "");
+    nextFm = upsertKey(nextFm, "type", "theory");
+    nextFm = upsertKey(nextFm, "status", "draft");
+    nextFm = upsertKey(nextFm, "domain", domain);
+    nextFm = upsertKey(nextFm, "workflow", "note_to_theory");
+    if (domain === "biotech") nextFm = upsertKey(nextFm, "topic", topic);
+    if (domain !== "biotech") nextFm = removeKey(nextFm, "topic");
+    nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
+    nextFm = ensureListKey(nextFm, "tags", "theory");
+    nextFm = ensureListKey(nextFm, "tags", domain);
+    if (domain === "biotech") nextFm = ensureListKey(nextFm, "tags", topic);
+  }
+  if (type === "method") {
+    const topic = ctx.theoryTopic?.trim() || (domain === "biotech" ? "Uncategorized" : "");
+    nextFm = upsertKey(nextFm, "type", "method");
+    nextFm = upsertKey(nextFm, "status", "draft");
+    nextFm = upsertKey(nextFm, "domain", domain);
+    nextFm = upsertKey(nextFm, "workflow", "note_to_method");
+    if (domain === "biotech") nextFm = upsertKey(nextFm, "topic", topic);
+    if (domain !== "biotech") nextFm = removeKey(nextFm, "topic");
+    nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
+    nextFm = ensureListKey(nextFm, "tags", "method");
+    nextFm = ensureListKey(nextFm, "tags", domain);
+    if (domain === "biotech") nextFm = ensureListKey(nextFm, "tags", topic);
+  }
+
+  if (/sec|色谱分析/i.test(body)) {
+    nextFm = ensureListKey(nextFm, "tags", "SEC");
+    const sec = detectSecMetadata(body);
+    if (sec.purity && !hasKey(nextFm, "purity")) nextFm = upsertKey(nextFm, "purity", `"${sec.purity}"`);
+    if (sec.columnType && !hasKey(nextFm, "column_type")) nextFm = upsertKey(nextFm, "column_type", `"${sec.columnType}"`);
+  }
+
+  const wrapped = `---\n${nextFm.trimEnd()}\n---\n\n`;
+  return wrapped + body.replace(/^\n+/, "");
+}

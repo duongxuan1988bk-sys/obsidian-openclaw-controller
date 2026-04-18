@@ -1,0 +1,14 @@
+{
+  "gatewayUrl": "ws://127.0.0.1:18789",
+  "token": "",
+  "sessionKey": "agent:Obsidian:main",
+  "selectedAgentId": "Obsidian",
+  "selectedModel": "",
+  "uiSkin": "apple",
+  "clientId": "node-host",
+  "clientMode": "node",
+  "paraInsightBase": "PARA/Resources",
+  "paraTheoryBase": "PARA/Resources",
+  "paraCaseBase": "PARA/Projects",
+  "paraMethodBase": "PARA/Methods"
+}
