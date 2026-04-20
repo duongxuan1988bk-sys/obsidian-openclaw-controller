@@ -14,7 +14,9 @@ local Obsidian plugin folder.
 - Runs registry-driven workflows for note creation, conversion, rewrite, and
   frontmatter repair.
 - Supports domain-aware outputs for `biotech`, `openclaw`, `ai`, and `general`.
-- Converts WeChat articles and PDF files into Raw notes through local scripts.
+- Converts WeChat articles, PDF files, and MarkItDown-supported files into Raw notes.
+- Splits PDF Raw output into section notes when paper headings are available.
+- Translates the active markdown note from English to Chinese into a translated Raw note.
 - Validates note frontmatter before writeback.
 - Organizes related Insight links automatically.
 - Builds a production Obsidian plugin bundle: `main.js`, `styles.css`, and
@@ -87,6 +89,27 @@ Domain folder names follow the existing vault style: `Biotech`, `OpenClaw`,
 PDF files are handled by `pdf_to_raw`. MarkItDown raw capture is reserved for
 DOCX, PPTX, XLSX, HTML, CSV, JSON, XML, ZIP, EPUB, and Markdown files.
 
+PDF Raw extraction writes sectioned output under:
+
+```text
+PARA/03Resources/01Raw/PDF/<PDF filename>/
+```
+
+When recognized paper sections such as Abstract, Introduction, Methods,
+Results, Discussion, References, or Supplementary are present, each section is
+written as its own Raw note. The splitter preserves lead metadata before the
+first section heading by placing it in the first section note.
+
+Translation writes English-to-Chinese output under:
+
+```text
+PARA/03Resources/01Raw/Translated/
+```
+
+Large note inputs are guarded before model workflows run: content above 30,000
+characters shows a warning, and content above 80,000 characters is rejected so
+the note can be split first.
+
 The default script paths are empty on purpose, so personal filesystem paths are
 not committed.
 
@@ -109,6 +132,7 @@ Workflow behavior is driven by YAML registries in the vault:
 | `wechat_to_raw` | yes | yes | yes | yes |
 | `pdf_to_raw` | yes | yes | yes | yes |
 | `markitdown_to_raw` | yes | yes | yes | yes |
+| `raw_to_translated` | yes | yes | yes | yes |
 | `note_to_theory` | yes | yes | yes | no |
 | `note_to_case` | yes | no | no | no |
 | `note_to_method` | yes | no | no | no |
@@ -141,7 +165,7 @@ Important modules:
 | `src/workflows/WorkflowExecutor.ts` | Executes workflow actions and writeback |
 | `src/openclaw/OpenClawClient.ts` | WebSocket client and device auth |
 | `src/schema/SchemaGuard.ts` | Frontmatter repair and schema inference |
-| `src/localScripts/rawExtractors.ts` | WeChat/PDF script bridge |
+| `src/localScripts/rawExtractors.ts` | WeChat/PDF/MarkItDown script bridge and PDF section splitter |
 | `src/linking/NoteLinkOrganizer.ts` | Related-note link organization |
 | `src/registry/frontmatterDateRules.ts` | `date` / `created` normalization rules |
 | `src/ui/*` | React UI components |
