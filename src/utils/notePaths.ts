@@ -55,6 +55,57 @@ function getNextSeqPrefix(app: App, targetDir: string): string {
   return String(count + 1).padStart(2, "0");
 }
 
+function parseSequencedMarkdownBase(file: TFile): { seq: string; base: string } | null {
+  if (file.extension !== "md") return null;
+  const match = file.basename.match(/^(\d{2,3})\s+(.+)$/);
+  if (!match) return null;
+  return { seq: match[1], base: match[2] };
+}
+
+function markdownNameExists(dir: TFolder, name: string): boolean {
+  const lowerName = name.toLowerCase();
+  return dir.children.some((child) => child instanceof TFile && child.extension === "md" && child.name.toLowerCase() === lowerName);
+}
+
+function resolveSequencedMarkdownPath(app: App, targetDir: string, safeBase: string): string {
+  const seq = getNextSeqPrefix(app, targetDir);
+  const candidateName = `${seq} ${safeBase}.md`;
+  const candidate = normalizePath(`${targetDir}/${candidateName}`);
+  const dir = app.vault.getAbstractFileByPath(targetDir);
+
+  if (!(dir instanceof TFolder)) {
+    if (!app.vault.getAbstractFileByPath(candidate)) return candidate;
+
+    let index = 2;
+    let alt = normalizePath(`${targetDir}/${seq} ${safeBase} ${index}.md`);
+    while (app.vault.getAbstractFileByPath(alt)) {
+      index += 1;
+      alt = normalizePath(`${targetDir}/${seq} ${safeBase} ${index}.md`);
+    }
+    return alt;
+  }
+
+  let colliderSeq: string | null = markdownNameExists(dir, candidateName) ? seq : null;
+  for (const child of dir.children) {
+    if (!(child instanceof TFile)) continue;
+    const parsed = parseSequencedMarkdownBase(child);
+    if (parsed?.base.toLowerCase() === safeBase.toLowerCase()) {
+      colliderSeq = parsed.seq;
+      break;
+    }
+  }
+
+  if (!colliderSeq) return candidate;
+
+  let index = 2;
+  let altName = `${colliderSeq} ${safeBase} ${index}.md`;
+  while (markdownNameExists(dir, altName)) {
+    index += 1;
+    altName = `${colliderSeq} ${safeBase} ${index}.md`;
+  }
+  return normalizePath(`${targetDir}/${altName}`);
+}
+
 export function resolveOutputPath(
   app: App,
   targetDir: string,
@@ -67,18 +118,7 @@ export function resolveOutputPath(
   const frontmatterBase = fromFrontmatter ? sanitizeFilenamePart(fromFrontmatter) : "";
   const fallbackBase = sanitizeFilenamePart(buildFallbackTitle(sourceTitle, label)) || "untitled-note";
   const safeBase = frontmatterBase || fallbackBase;
-  const seq = getNextSeqPrefix(app, targetDir);
-  const candidate = normalizePath(`${targetDir}/${seq} ${safeBase}.md`);
-  if (app.vault.getAbstractFileByPath(candidate)) {
-    let index = 2;
-    let alt = normalizePath(`${targetDir}/${seq} ${safeBase} ${index}.md`);
-    while (app.vault.getAbstractFileByPath(alt)) {
-      index += 1;
-      alt = normalizePath(`${targetDir}/${seq} ${safeBase} ${index}.md`);
-    }
-    return alt;
-  }
-  return candidate;
+  return resolveSequencedMarkdownPath(app, targetDir, safeBase);
 }
 
 export function resolveRawOutputPath(
@@ -95,18 +135,7 @@ export function resolveRawOutputPath(
       ? markdownTitle ?? titleFromUrl(url)
       : extractFrontmatterTitle(markdown) ?? markdownTitle ?? titleFromUrl(url);
   const safeBase = sanitizeFilenamePart(titleSeed) || `Raw ${timestampSlug()}`;
-  const seq = getNextSeqPrefix(app, rawDir);
-  const candidate = normalizePath(`${rawDir}/${seq} ${safeBase}.md`);
-  if (app.vault.getAbstractFileByPath(candidate)) {
-    let index = 2;
-    let alt = normalizePath(`${rawDir}/${seq} ${safeBase} ${index}.md`);
-    while (app.vault.getAbstractFileByPath(alt)) {
-      index += 1;
-      alt = normalizePath(`${rawDir}/${seq} ${safeBase} ${index}.md`);
-    }
-    return alt;
-  }
-  return candidate;
+  return resolveSequencedMarkdownPath(app, rawDir, safeBase);
 }
 
 function normalizeRawWechatDir(targetDir: string): string {

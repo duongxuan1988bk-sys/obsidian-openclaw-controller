@@ -20,10 +20,7 @@ import { PermissionRequest, type PermissionRequestModel } from "./components/Per
 import { TopicPicker, THEORY_TOPIC_OPTIONS, CASE_TOPIC_OPTIONS, METHOD_TOPIC_OPTIONS, type TopicOption } from "./components/TopicPicker";
 import { DomainPicker, INSIGHT_DOMAIN_OPTIONS, type InsightDomainOption } from "./components/DomainPicker";
 import type OpenClawControllerPlugin from "../main";
-import type { TheoryTopic, CaseTopic, MethodTopic } from "../registry/insightRegistry";
-
-// RegistryTopic is the union used for topic picker selection
-type RegistryTopic = TheoryTopic | CaseTopic | MethodTopic;
+import type { RawDomain, RegistryTopic, TopicPickerState } from "./pickerTypes";
 
 // ---------------------------------------------------------------------------
 // ChatPanel
@@ -34,8 +31,6 @@ type StreamState = {
   content: string;
   tokenUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number; model?: string };
 };
-
-type TopicPickerState = null | { kind: "theory" | "case" | "method" | "insight" | "doc" | "debug" | "system" | "case_by_domain" };
 
 type Props = {
   app: ObsidianApp;
@@ -48,7 +43,7 @@ type Props = {
   onRemoveTurn: (turnId: string) => void;
   onRetryTurn: (turn: ChatTurn) => void;
   onCompleteTopicSelection: (topic: RegistryTopic | null) => void;
-  onCompleteInsightDomainSelection: (domain: "biotech" | "openclaw" | "ai" | "general" | null) => void;
+  onCompleteInsightDomainSelection: (domain: RawDomain | null) => void;
   onRespondAction: (id: string, approved: boolean) => void;
 };
 
@@ -111,6 +106,8 @@ export function ChatPanel({
           <DomainPicker
             title={
               topicPicker.kind === "insight" ? "Convert to Insight" :
+              topicPicker.kind === "raw" ? "Convert to Raw" :
+              topicPicker.kind === "markitdown" ? "Convert MarkItDown to Raw" :
               topicPicker.kind === "doc" ? "Convert to Doc" :
               topicPicker.kind === "debug" ? "Convert to Debug" :
               topicPicker.kind === "system" ? "Convert to System" :

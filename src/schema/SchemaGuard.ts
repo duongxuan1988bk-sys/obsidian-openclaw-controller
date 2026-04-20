@@ -151,7 +151,9 @@ export function ensureSchemaFrontmatter(text: string, ctx: SchemaContext): strin
   }
   if (type === "raw") {
     nextFm = upsertKey(nextFm, "type", "raw");
-    nextFm = upsertKey(nextFm, "status", "raw");
+    if (readKey(nextFm, "status") !== "failed-extract") {
+      nextFm = upsertKey(nextFm, "status", "raw");
+    }
     nextFm = ensureListKey(nextFm, "tags", "raw");
   }
   if (type === "insight") {

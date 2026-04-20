@@ -1,7 +1,19 @@
 import type { App, TFile } from "obsidian";
 import { parseYaml } from "obsidian";
 import { logError, logExecution, logWarning } from "../monitoring/workflowLogs";
-import { runPdfScript, runWechatScript } from "../localScripts/rawExtractors";
+import { runMarkItDownScript, runPdfScript, runWechatScript, splitMarkdownBySections } from "../localScripts/rawExtractors";
+import {
+  ensureMarkItDownRawMarkdown,
+  resolveMarkItDownRawTargetDir,
+  type RawDomain
+} from "./markItDownRaw";
+import {
+  buildRawNoteMarkdown,
+  hasExactMarkdownSection,
+  normalizeRawExtractionStatus,
+  upsertRawFrontmatterString as upsertFrontmatterString,
+  upsertRawFrontmatterStringIfMissing as upsertFrontmatterStringIfMissing
+} from "./rawMarkdown";
 import type { OpenClawClient } from "../openclaw/OpenClawClient";
 import {
   resolveCaseByDomainWorkflow,
@@ -65,6 +77,59 @@ function normalizeMarkdownArtifact(value: string): string {
   return (fenced?.[1] ?? trimmed).trim() + "\n";
 }
 
+/**
+ * Restructure translated markdown so that the body content lives under
+ * ## Original Content. The LLM may return translated text at the root level;
+ * this moves it into the required ## Original Content section and removes
+ * the duplicate root-level content.
+ */
+export function promoteToOriginalContent(markdown: string): string {
+  // Split off frontmatter
+  const fmMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!fmMatch) {
+    // No frontmatter; wrap entire body in ## Original Content
+    return `## Original Content\n\n${markdown.trim()}\n`;
+  }
+  const [, frontmatter, body] = fmMatch;
+
+  // Demote all #/## headings (outside fences) so they don't prematurely close
+  // ## Original Content. Skip both ``` and ~~~ fences with 0-3 leading spaces.
+  let inFence = false;
+  let fenceChar = "";
+  const demotedBody = body.trim().split("\n").map((line) => {
+    // Detect fence open/close (``` or ~~~)
+    const fenceMatch = line.match(/^[ \t]{0,3}(```|~~~)/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      if (!inFence) {
+        inFence = true;
+        fenceChar = marker;
+        return line;
+      }
+      if (marker === fenceChar) {
+        inFence = false;
+        fenceChar = "";
+        return line;
+      }
+      // Different fence marker inside an open fence — unmatched closer, stay in fence
+      return line;
+    }
+    if (inFence) return line;
+
+    // Demote root-level headings: ## → ####, # → ###
+    const headingMatch = line.match(/^([ \t]{0,3})(#{1,2})\s+(.+)/);
+    if (headingMatch) {
+      const [, indent, hashes, rest] = headingMatch;
+      const newLevel = hashes.length + 2;
+      return `${indent}${"#".repeat(newLevel)} ${rest}`;
+    }
+    return line;
+  }).join("\n");
+
+  const ocSection = `## Original Content\n\n${demotedBody}\n`;
+  return `---\n${frontmatter}\n---\n\n${ocSection}`;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -95,32 +160,6 @@ export function frontmatterString(markdown: string, key: string): string {
   } catch {
     return "";
   }
-}
-
-function upsertFrontmatterString(markdown: string, key: string, value: string): string {
-  const blockMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?/);
-  const line = `${key}: ${value}`;
-  if (!blockMatch) {
-    return `---\n${line}\n---\n\n${markdown}`;
-  }
-
-  const block = blockMatch[1];
-  const keyPattern = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*.*$`, "m");
-  const nextBlock = keyPattern.test(block) ? block.replace(keyPattern, line) : `${block}\n${line}`;
-  return markdown.replace(blockMatch[0], `---\n${nextBlock}\n---\n`);
-}
-
-function hasExactMarkdownSection(markdown: string, heading: string): boolean {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^#{1,6}\\s+${escaped}\\s*$`, "im").test(markdown);
-}
-
-function buildRawNoteMarkdown(title: string, domain: string, content: string): string {
-  const now = new Date();
-  const dateStr = now.getFullYear() + "-" +
-    String(now.getMonth() + 1).padStart(2, "0") + "-" +
-    String(now.getDate()).padStart(2, "0");
-  return `---\ntitle: ${title}\ndomain: ${domain}\ntype: raw\ndate: ${dateStr}\ncreated: ${dateStr}\nstatus: draft\nsource: manual\nworkflow: ${domain}_to_raw\ntags: [raw, ${domain}]\n---\n\n# ${title}\n\n## Source\n\nManual input\n\n## Original Content\n\n${content}\n`;
 }
 
 function todayISO(): string {
@@ -310,17 +349,9 @@ export class WorkflowExecutor {
       this.options.onSystemTurn("WeChat article fetched. Validating…");
 
       let patchedMarkdown = markdown;
-      patchedMarkdown = patchedMarkdown.replace(/^status: .+$/m, "status: draft");
-      if (!/^domain:\s/m.test(patchedMarkdown)) {
-        patchedMarkdown = patchedMarkdown.replace(/^status: .+$/m, "status: draft\ndomain: biotech");
-      } else {
-        patchedMarkdown = patchedMarkdown
-          .replace(/^domain:[\s]*$/m, "domain: biotech")
-          .replace(/^domain: .+$/m, "domain: biotech");
-      }
-      if (!/^workflow:\s/m.test(patchedMarkdown)) {
-        patchedMarkdown = patchedMarkdown.replace(/^domain: .+$/m, "domain: biotech\nworkflow: wechat_to_raw");
-      }
+      patchedMarkdown = normalizeRawExtractionStatus(patchedMarkdown);
+      patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "domain", "biotech");
+      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "workflow", "wechat_to_raw");
       patchedMarkdown = patchedMarkdown
         .replace(/^## 📌 原文$/gm, "## Original Content")
         .replace(/^## ⚙️ 提取记录$/gm, "## Source")
@@ -377,7 +408,7 @@ export class WorkflowExecutor {
     }
   }
 
-  async executePdfRaw(params: { pdfPath: string; startedAt?: number }): Promise<{ created: TFile; markdown: string }> {
+  async executePdfRaw(params: { pdfPath: string; startedAt?: number }): Promise<{ created: TFile[]; markdown: string }> {
     const action = "convert_to_raw";
     const workflowName = "pdf_to_raw";
     const startedAt = params.startedAt ?? Date.now();
@@ -386,19 +417,281 @@ export class WorkflowExecutor {
 
     try {
       const markdown = await runPdfScript(this.options.app, this.options.getSettings(), pdfPath);
-      this.options.onSystemTurn("PDF extracted. Validating…");
+      this.options.onSystemTurn("PDF extracted. Splitting by sections…");
 
+      // Normalize the markdown
       let patchedMarkdown = markdown;
-      patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "status", "draft");
-      patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "domain", "biotech");
-      patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "workflow", workflowName);
+      patchedMarkdown = normalizeRawExtractionStatus(patchedMarkdown);
 
-      if (!hasExactMarkdownSection(patchedMarkdown, "source")) {
-        patchedMarkdown += "\n\n## Source\n\n- PDF: " + pdfPath + "\n";
+      // Split into sections
+      const pdfBasename = pdfPath.split("/").pop() ?? "PDF Note";
+      const { folderName, sections } = splitMarkdownBySections(patchedMarkdown, pdfBasename);
+
+      if (sections.length === 0) {
+        // No sections found, treat as single note
+        patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "domain", "biotech");
+        patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "workflow", workflowName);
+        if (!hasExactMarkdownSection(patchedMarkdown, "source")) {
+          patchedMarkdown += "\n\n## Source\n\n- PDF: " + pdfPath + "\n";
+        }
+        if (!hasExactMarkdownSection(patchedMarkdown, "original content")) {
+          patchedMarkdown += "\n\n## Original Content\n\n[Content extracted from PDF]\n";
+        }
+
+        step = "write_target_note";
+        const targetDir = "PARA/03Resources/01Raw/PDF";
+        const targetPath = resolveRawOutputPath(this.options.app, targetDir, patchedMarkdown, pdfPath, undefined);
+        const created = await this.options.writeFile(targetPath, patchedMarkdown, "raw");
+        await logExecution(this.options.app, {
+          action,
+          workflow: workflowName,
+          sourceNote: pdfPath,
+          targetNote: created.path,
+          domain: "biotech",
+          topic: "",
+          model: this.options.currentModelName(),
+          durationMs: Date.now() - startedAt,
+          validationLevel: "PASS"
+        });
+        return { created: [created], markdown: patchedMarkdown };
       }
-      if (!hasExactMarkdownSection(patchedMarkdown, "original content")) {
-        patchedMarkdown += "\n\n## Original Content\n\n[Content extracted from PDF]\n";
+
+      // Write each section as a separate file in the folder
+      const targetDir = `PARA/03Resources/01Raw/PDF/${folderName}`;
+      const createdFiles: TFile[] = [];
+
+      step = "write_target_note";
+      for (const section of sections) {
+        const sectionTitle = `${section.seq} ${section.canonicalTitle}`;
+        let sectionMarkdown = `# ${sectionTitle}\n\n${section.content}`;
+
+        // Add frontmatter
+        sectionMarkdown = `---\ntitle: ${sectionTitle}\ndate: ${new Date().toISOString().split("T")[0]}\nsource: ${pdfPath}\ntags: [raw, pdf, ${section.canonicalTitle.toLowerCase().replace(/\s+/g, "-")}]\ntype: raw\nstatus: new\ndomain: biotech\nworkflow: pdf_to_raw\n---\n\n${sectionMarkdown}`;
+
+        if (!hasExactMarkdownSection(sectionMarkdown, "source")) {
+          sectionMarkdown += "\n\n## Source\n\n- PDF: " + pdfPath + "\n";
+        }
+        if (!hasExactMarkdownSection(sectionMarkdown, "original content")) {
+          sectionMarkdown += "\n\n## Original Content\n\n[Content extracted from PDF]\n";
+        }
+
+        // Try writing with collision-safe suffix loop
+        let index = 1;
+        let written = false;
+        while (!written) {
+          const candidateName = index === 1
+            ? `${section.seq} ${section.canonicalTitle}.md`
+            : `${section.seq} ${section.canonicalTitle} ${index}.md`;
+          const candidatePath = `${targetDir}/${candidateName}`;
+          try {
+            const created = await this.options.writeFile(candidatePath, sectionMarkdown, "raw");
+            createdFiles.push(created);
+            written = true;
+          } catch (error) {
+            if ((error as Error).message.includes("already exists")) {
+              index += 1;
+              if (index > 100) {
+                throw new Error(`Could not write section ${sectionTitle}: too many collisions`);
+              }
+              // Continue loop to try next suffix
+            } else {
+              throw error; // Re-throw non-collision errors
+            }
+          }
+        }
       }
+
+      const primaryFile = createdFiles[0];
+      await logExecution(this.options.app, {
+        action,
+        workflow: workflowName,
+        sourceNote: pdfPath,
+        targetNote: primaryFile.path,
+        domain: "biotech",
+        topic: "",
+        model: this.options.currentModelName(),
+        durationMs: Date.now() - startedAt,
+        validationLevel: "PASS"
+      });
+
+      return { created: createdFiles, markdown: patchedMarkdown };
+    } catch (error) {
+      await logError(this.options.app, {
+        action,
+        workflow: workflowName,
+        sourceNote: pdfPath,
+        step,
+        errorType: errorType(error),
+        message: errorMessage(error),
+        durationMs: Date.now() - startedAt
+      });
+      throw error;
+    }
+  }
+
+  async executeTranslation(params: {
+    activeFile: TFile;
+    startedAt?: number;
+  }): Promise<{ created: TFile; markdown: string }> {
+    const action = "translate_note";
+    const workflowName = "raw_to_translated";
+    const startedAt = params.startedAt ?? Date.now();
+    const { activeFile } = params;
+    const title = activeFile.basename || activeFile.name.replace(/\.md$/i, "");
+    let step = "read_note";
+
+    try {
+      const content = await this.options.app.vault.cachedRead(activeFile);
+      if (!content.trim()) throw new Error("Current note content is empty.");
+
+      step = "preValidation";
+      const inputResult = validateInput({
+        workflowName: "raw_to_translated",
+        currentNoteContent: content
+      });
+      if (inputResult.level === "FAIL") {
+        throw new Error(inputResult.reason);
+      }
+      if (inputResult.level === "WARNING") {
+        this.options.onSystemTurn(`[WARNING] ${inputResult.reason}`);
+      }
+
+      step = "build_translation_prompt";
+      const translationPrompt = [
+        "You are a professional scientific translator.",
+        "Translate the following English content to Chinese (Simplified Chinese).",
+        "Preserve all markdown formatting, headings, code blocks, emphasis, and structural elements.",
+        "Do NOT change or reinterpret the content -- translate literally and accurately.",
+        "Do NOT add explanations or notes outside the translated markdown.",
+        "",
+        "Original content:",
+        content,
+        "",
+        "Return only the translated markdown document."
+      ].join("\n");
+
+      this.options.onSystemTurn("Translating note to Chinese…");
+
+      step = "send_openclaw";
+      const replyPromise = this.options.waitForMarkdownReply();
+      const res = await this.options.getClient()?.generateMarkdown({
+        action: "generate_markdown",
+        prompt: translationPrompt,
+        title,
+        path: activeFile.path,
+        content
+      });
+
+      if (!res) throw new Error("OpenClaw client is not ready.");
+      if (!res.ok) {
+        this.options.cancelPendingReply();
+        throw new Error(res.error?.message ?? "Translation request rejected");
+      }
+
+      step = "wait_for_reply";
+      const translatedMarkdown = normalizeMarkdownArtifact(await replyPromise);
+      if (!translatedMarkdown.trim()) throw new Error("OpenClaw returned empty translation.");
+
+      step = "write_target_note";
+      // Normalize frontmatter: ensure correct metadata on translated note
+      let finalMarkdown = translatedMarkdown;
+      finalMarkdown = upsertFrontmatterString(finalMarkdown, "title", `${title} (Translated)`);
+      finalMarkdown = upsertFrontmatterString(finalMarkdown, "source", activeFile.path);
+      finalMarkdown = upsertFrontmatterString(finalMarkdown, "workflow", "raw_to_translated");
+      finalMarkdown = upsertFrontmatterString(finalMarkdown, "type", "raw");
+      finalMarkdown = upsertFrontmatterString(finalMarkdown, "status", "new");
+      finalMarkdown = upsertFrontmatterString(finalMarkdown, "tags", "[raw, translated]");
+      finalMarkdown = upsertFrontmatterString(finalMarkdown, "domain", frontmatterString(content, "domain") || "general");
+      finalMarkdown = upsertFrontmatterString(finalMarkdown, "date", new Date().toISOString().split("T")[0]);
+
+      // Ensure ## Original Content section exists with the translated body.
+      // Must run BEFORE adding ## Source — otherwise Source gets demoted into Original Content.
+      if (!hasExactMarkdownSection(finalMarkdown, "original content")) {
+        finalMarkdown = promoteToOriginalContent(finalMarkdown);
+      }
+      // Ensure ## Source section exists (runs after promote so it stays at root level)
+      if (!hasExactMarkdownSection(finalMarkdown, "source")) {
+        finalMarkdown += "\n\n## Source\n\n- Original: [[" + activeFile.path + "]]\n";
+      }
+
+      step = "postValidation";
+      const noteResult = validateNote(finalMarkdown);
+      if (noteResult.level === "FAIL") {
+        throw new Error(`Translated note failed validation: ${noteResult.message}`);
+      }
+      if (noteResult.level === "WARNING") {
+        await logWarning(this.options.app, {
+          action,
+          workflow: workflowName,
+          sourceNote: activeFile.path,
+          targetNote: "",
+          domain: frontmatterString(finalMarkdown, "domain") || "general",
+          message: noteResult.message,
+          missingFields: noteResult.missingFields,
+          missingSections: noteResult.missingSections,
+          durationMs: Date.now() - startedAt
+        });
+      }
+
+      const targetDir = "PARA/03Resources/01Raw/Translated";
+      const targetPath = resolveOutputPath(
+        this.options.app,
+        targetDir,
+        finalMarkdown,
+        title,
+        "Translation"
+      );
+      const created = await this.options.writeFile(targetPath, finalMarkdown, "translation");
+
+      await logExecution(this.options.app, {
+        action,
+        workflow: workflowName,
+        sourceNote: activeFile.path,
+        targetNote: created.path,
+        domain: frontmatterString(finalMarkdown, "domain") || "general",
+        topic: "",
+        model: this.options.currentModelName(),
+        durationMs: Date.now() - startedAt,
+        validationLevel: noteResult.level
+      });
+
+      return { created, markdown: finalMarkdown };
+    } catch (error) {
+      this.options.cancelPendingReply();
+      if (!wasWorkflowErrorLogged(error)) {
+        await logError(this.options.app, {
+          action,
+          workflow: workflowName,
+          sourceNote: activeFile.path,
+          step,
+          errorType: errorType(error),
+          message: errorMessage(error),
+          durationMs: Date.now() - startedAt
+        });
+        markWorkflowErrorLogged(error);
+      }
+      throw error;
+    }
+  }
+
+  async executeMarkItDownRaw(params: { inputPath: string; domain: RawDomain; startedAt?: number }): Promise<{ created: TFile; markdown: string }> {
+    const action = "convert_to_raw";
+    const workflowName = "markitdown_to_raw";
+    const startedAt = params.startedAt ?? Date.now();
+    const { inputPath, domain } = params;
+    let step = "validate_input";
+
+    try {
+      const inputResult = validateInput({ workflowName, inputPath });
+      if (inputResult.level === "FAIL") {
+        throw new Error(inputResult.reason);
+      }
+
+      step = "fetch_markitdown";
+      const markdown = await runMarkItDownScript(this.options.app, this.options.getSettings(), inputPath);
+      this.options.onSystemTurn("MarkItDown extracted. Validating…");
+
+      const patchedMarkdown = ensureMarkItDownRawMarkdown(markdown, inputPath, domain);
 
       step = "postValidation";
       const noteResult = validateNote(patchedMarkdown);
@@ -409,9 +702,9 @@ export class WorkflowExecutor {
         await logWarning(this.options.app, {
           action,
           workflow: workflowName,
-          sourceNote: pdfPath,
+          sourceNote: inputPath,
           targetNote: "",
-          domain: "biotech",
+          domain,
           message: noteResult.message,
           missingFields: noteResult.missingFields,
           missingSections: noteResult.missingSections,
@@ -420,15 +713,15 @@ export class WorkflowExecutor {
       }
 
       step = "write_target_note";
-      const targetDir = "PARA/03Resources/01Raw/PDF";
-      const targetPath = resolveRawOutputPath(this.options.app, targetDir, patchedMarkdown, pdfPath, undefined);
+      const targetDir = resolveMarkItDownRawTargetDir(domain);
+      const targetPath = resolveRawOutputPath(this.options.app, targetDir, patchedMarkdown, inputPath, undefined);
       const created = await this.options.writeFile(targetPath, patchedMarkdown, "raw");
       await logExecution(this.options.app, {
         action,
         workflow: workflowName,
-        sourceNote: pdfPath,
+        sourceNote: inputPath,
         targetNote: created.path,
-        domain: "biotech",
+        domain,
         topic: "",
         model: this.options.currentModelName(),
         durationMs: Date.now() - startedAt,
@@ -440,7 +733,7 @@ export class WorkflowExecutor {
       await logError(this.options.app, {
         action,
         workflow: workflowName,
-        sourceNote: pdfPath,
+        sourceNote: inputPath,
         step,
         errorType: errorType(error),
         message: errorMessage(error),
@@ -619,6 +912,9 @@ export class WorkflowExecutor {
       });
       if (inputResult.level === "FAIL") {
         throw new Error(inputResult.reason);
+      }
+      if (inputResult.level === "WARNING") {
+        this.options.onSystemTurn(`[WARNING] ${inputResult.reason}`);
       }
 
       step = "resolve_registry";

@@ -11,7 +11,7 @@ import type { OpenClawCatalogOption } from "./openclaw/localConfig";
 import { logError, logExecution } from "./monitoring/workflowLogs";
 import { validateNote } from "./validation";
 import { resolveWorkflowPlan, validatePlan, type PlannerWorkflowPlan } from "./planner";
-import type { CaseTopic, MethodTopic, TheoryTopic } from "./registry/insightRegistry";
+import type { RawDomain, RegistryTopic, TopicPickerState } from "./ui/pickerTypes";
 import { AgentStatusBar } from "./ui/AgentStatusBar";
 import { ChatPanel } from "./ui/ChatPanel";
 import { InputBar } from "./ui/InputBar";
@@ -94,8 +94,6 @@ type PendingInsightConversion = {
   reject: (error: Error) => void;
   timeout: number;
 };
-
-type RegistryTopic = TheoryTopic | CaseTopic | MethodTopic;
 
 class WeChatUrlModal extends Modal {
   private value = "";
@@ -325,6 +323,118 @@ class PdfFilePickerModal extends Modal {
     this.settled = true;
     this.resolve(null);
     this.close();
+  }
+}
+
+const MARKITDOWN_EXTENSIONS = ["docx", "pptx", "xlsx", "html", "htm", "csv", "json", "xml", "zip", "epub", "md", "markdown"];
+
+class MarkItDownFilePickerModal extends Modal {
+  private settled = false;
+  private resolve: (value: string | null) => void;
+  private selectedPath: string | null = null;
+  private allFiles: TFile[] = [];
+
+  constructor(app: ObsidianApp, resolve: (value: string | null) => void) {
+    super(app);
+    this.resolve = resolve;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("oc-url-modal");
+    contentEl.createEl("h2", { text: "Select File to Convert via MarkItDown" });
+    contentEl.createEl("p", {
+      text: "Supported: DOCX, PPTX, XLSX, HTML, CSV, JSON, XML, ZIP, EPub, Markdown"
+    });
+
+    const filter = contentEl.createEl("input", {
+      type: "text",
+      placeholder: "Filter files…"
+    });
+    filter.addClass("oc-url-modal-input");
+    filter.style.width = "100%";
+    filter.style.marginBottom = "8px";
+
+    const listEl = contentEl.createDiv({ cls: "oc-file-list" });
+    listEl.style.maxHeight = "300px";
+    listEl.style.overflowY = "auto";
+    listEl.style.border = "1px solid var(--background-modifier-border)";
+    listEl.style.borderRadius = "6px";
+    listEl.style.padding = "4px";
+
+    this.allFiles = this.app.vault.getFiles()
+      .filter((f) => MARKITDOWN_EXTENSIONS.includes(f.extension.toLowerCase()))
+      .sort((a, b) => (b.stat?.mtime ?? 0) - (a.stat?.mtime ?? 0));
+
+    const renderList = (query: string) => {
+      listEl.empty();
+      const filtered = query
+        ? this.allFiles.filter((f) => f.path.toLowerCase().includes(query.toLowerCase()))
+        : this.allFiles;
+
+      if (filtered.length === 0) {
+        const emptyEl = listEl.createEl("div", {
+          text: this.allFiles.length === 0 ? "No supported files found in vault." : "No matching files."
+        });
+        emptyEl.style.padding = "12px";
+        emptyEl.style.color = "var(--text-muted)";
+        return;
+      }
+
+      for (const file of filtered.slice(0, 100)) {
+        const item = listEl.createDiv({
+          cls: `oc-file-item${this.selectedPath === file.path ? " is-selected" : ""}`,
+        });
+        item.style.padding = "6px 10px";
+        item.style.cursor = "pointer";
+        item.style.borderRadius = "4px";
+        item.style.fontSize = "13px";
+        item.setAttr("data-path", file.path);
+        item.createEl("div", { text: file.basename, cls: "oc-file-item-name" });
+        const pathEl = item.createEl("div", {
+          text: `${file.extension.toUpperCase()} · ${file.path}`,
+          cls: "oc-file-item-path"
+        });
+        pathEl.style.fontSize = "11px";
+        pathEl.style.color = "var(--text-muted)";
+        item.addEventListener("click", () => {
+          this.selectedPath = file.path;
+          listEl.findAll(".oc-file-item").forEach((el) => el.removeClass("is-selected"));
+          item.addClass("is-selected");
+        });
+        item.addEventListener("dblclick", () => {
+          this.settled = true;
+          this.resolve(this.selectedPath);
+          this.close();
+        });
+      }
+    };
+
+    filter.addEventListener("input", () => renderList(filter.value));
+    renderList("");
+
+    const actions = contentEl.createDiv({ cls: "oc-url-modal-actions" });
+    const cancel = actions.createEl("button", { text: "Cancel" });
+    const submit = actions.createEl("button", { text: "Convert" });
+    submit.addClass("mod-cta");
+    cancel.addEventListener("click", () => {
+      this.settled = true;
+      this.resolve(null);
+      this.close();
+    });
+    submit.addEventListener("click", () => {
+      if (this.selectedPath) {
+        this.settled = true;
+        this.resolve(this.selectedPath);
+        this.close();
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+    if (!this.settled) this.resolve(null);
   }
 }
 
@@ -630,15 +740,17 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   const sessionKeyRef = useRef(sessionKey);
   const pendingInsightRef = useRef<PendingInsightConversion | null>(null);
   const topicSelectionResolverRef = useRef<((topic: RegistryTopic | null) => void) | null>(null);
-  const domainSelectionResolverRef = useRef<((domain: "biotech" | "openclaw" | "ai" | "general" | null) => void) | null>(null);
-  const [topicPicker, setTopicPicker] = useState<null | { kind: "theory" | "case" | "method" | "insight" | "doc" | "debug" | "system" | "case_by_domain" }>(null);
-  const [selectedDomain, setSelectedDomain] = useState<"biotech" | "openclaw" | "ai" | "general" | null>(null);
+  const domainSelectionResolverRef = useRef<((domain: RawDomain | null) => void) | null>(null);
+  const [topicPicker, setTopicPicker] = useState<TopicPickerState>(null);
+  const [selectedDomain, setSelectedDomain] = useState<RawDomain | null>(null);
   const convertToInsightRef = useRef<() => void>(() => {});
   const convertToRawRef = useRef<() => void>(() => {});
   const convertPdfRawRef = useRef<() => void>(() => {});
+  const convertMarkItDownRawRef = useRef<() => void>(() => {});
   const organizeLinksRef = useRef<() => void>(() => {});
   const rewriteCurrentNoteRef = useRef<() => void>(() => {});
   const fixFrontmatterRef = useRef<() => void>(() => {});
+  const translateNoteRef = useRef<() => void>(() => {});
   const inputComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
 
@@ -659,6 +771,10 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   }, [props.plugin]);
 
   useEffect(() => {
+    return props.plugin.onConvertToMarkItDownRequested(() => convertMarkItDownRawRef.current());
+  }, [props.plugin]);
+
+  useEffect(() => {
     return props.plugin.onOrganizeLinksRequested(() => organizeLinksRef.current());
   }, [props.plugin]);
 
@@ -668,6 +784,10 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
 
   useEffect(() => {
     return props.plugin.onFixFrontmatterRequested(() => fixFrontmatterRef.current());
+  }, [props.plugin]);
+
+  useEffect(() => {
+    return props.plugin.onConvertToTranslationRequested(() => translateNoteRef.current());
   }, [props.plugin]);
 
   useEffect(() => {
@@ -1578,49 +1698,84 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     await convertCurrentNoteWithRegistry("system");
   }
 
+  function appendTurn(turn: ChatTurn) {
+    setTurns((prev) => [...prev, turn]);
+  }
+
+  function appendSystemTurn(content: string) {
+    appendTurn({ id: uid(), role: "system", createdAt: Date.now(), content });
+  }
+
+  function appendUserTurn(content: string) {
+    appendTurn({ id: uid(), role: "user", createdAt: Date.now(), content });
+  }
+
+  async function logRawConnectionError(startedAt: number, message: string) {
+    new Notice(message);
+    appendSystemTurn(`**Convert to Raw failed**: ${message}`);
+    await logError(props.app, {
+      action: "convert_to_raw",
+      workflow: "convert_to_raw",
+      sourceNote: "",
+      step: "preflight",
+      errorType: "ConnectionError",
+      message,
+      durationMs: Date.now() - startedAt
+    });
+  }
+
+  async function withRawExecution(options: {
+    startMessage: string;
+    successNotice: (path: string) => string;
+    successMessage: (path: string) => string;
+    failureNotice: (message: string) => string;
+    failureMessage: (message: string) => string;
+    run: () => Promise<{ created: TFile | TFile[] }>;
+  }) {
+    setSending(true);
+    appendSystemTurn(options.startMessage);
+
+    try {
+      const { created } = await options.run();
+      const createdArray = Array.isArray(created) ? created : [created];
+      const primaryPath = createdArray[0]?.path ?? "unknown";
+      const folderPath = createdArray.length > 1
+        ? primaryPath.split("/").slice(0, -1).join("/")
+        : primaryPath;
+      const displayPath = createdArray.length > 1
+        ? `${folderPath}/ (${createdArray.length} sections)`
+        : primaryPath;
+      new Notice(options.successNotice(displayPath));
+      appendSystemTurn(options.successMessage(displayPath));
+    } catch (error) {
+      const message = errorMessage(error);
+      new Notice(options.failureNotice(message));
+      appendSystemTurn(options.failureMessage(message));
+    } finally {
+      setSending(false);
+    }
+  }
+
   /**
    * Convert to Raw — domain-aware.
    * - biotech: shows WeChat URL modal and uses wechat-to-obsidian skill
    * - openclaw/ai/general: shows generic content modal and creates a raw note directly
    */
   async function convertToRaw() {
-    const action = "convert_to_raw";
     const startedAt = Date.now();
-    let step = "preflight";
 
     if (conn !== "connected") {
-      new Notice("Convert to Raw failed: OpenClaw is not connected.");
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to Raw failed**: OpenClaw is not connected.` }
-      ]);
-      await logError(props.app, {
-        action,
-        workflow: "convert_to_raw",
-        sourceNote: "",
-        step,
-        errorType: "ConnectionError",
-        message: "OpenClaw is not connected.",
-        durationMs: Date.now() - startedAt
-      });
+      await logRawConnectionError(startedAt, "Convert to Raw failed: OpenClaw is not connected.");
       return;
     }
 
-    // Show domain picker
-    setTurns((prev) => [
-      ...prev,
-      { id: uid(), role: "system", createdAt: Date.now(), content: "Convert to Raw: waiting for domain selection…" }
-    ]);
+    appendSystemTurn("Convert to Raw: waiting for domain selection…");
     const selectedDomain = await chooseDomainForRaw();
     if (!selectedDomain) {
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: "Convert to Raw cancelled: no domain selected." }
-      ]);
+      appendSystemTurn("Convert to Raw cancelled: no domain selected.");
       return;
     }
 
-    // Biotech uses wechat URL flow; others use generic content input
     if (selectedDomain === "biotech") {
       await convertBiotechRaw(startedAt);
     } else {
@@ -1632,60 +1787,39 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
    * Biotech: WeChat URL → wechat-to-obsidian skill
    */
   async function convertBiotechRaw(startedAt: number) {
-    const action = "convert_to_raw";
     const workflowName = "wechat_to_raw";
-    let step = "preflight";
 
     const url = await promptForWeChatUrl();
     if (url == null) {
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: "Convert to Raw cancelled: no URL entered." }
-      ]);
+      appendSystemTurn("Convert to Raw cancelled: no URL entered.");
       return;
     }
     if (!url.trim()) {
-      new Notice("Convert to Raw failed: WeChat URL is required.");
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to Raw failed**: WeChat URL is required.` }
-      ]);
+      const message = "WeChat URL is required.";
+      new Notice(`Convert to Raw failed: ${message}`);
+      appendSystemTurn(`**Convert to Raw failed**: ${message}`);
       await logError(props.app, {
-        action,
+        action: "convert_to_raw",
         workflow: workflowName,
         sourceNote: "",
         step: "validate_input",
         errorType: "ValidationError",
-        message: "WeChat URL is required.",
+        message,
         durationMs: Date.now() - startedAt
       });
       return;
     }
 
-    setSending(true);
-    setTurns((prev) => [
-      ...prev,
-      { id: uid(), role: "user", createdAt: Date.now(), content: `Convert to Raw: ${url.trim()}` },
-      { id: uid(), role: "system", createdAt: Date.now(), content: "Convert to Raw started. Running WeChat fetch script…" }
-    ]);
-
-    try {
-      const { created } = await createWorkflowExecutor().executeWechatRaw({ url: url.trim(), startedAt });
-      new Notice(`Raw created: ${created.path}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `Raw created: ${created.path}` }
-      ]);
-    } catch (error) {
-      const message = errorMessage(error);
-      new Notice(`Convert to Raw failed: ${message}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to Raw failed**: ${message}` }
-      ]);
-    } finally {
-      setSending(false);
-    }
+    const trimmedUrl = url.trim();
+    appendUserTurn(`Convert to Raw: ${trimmedUrl}`);
+    await withRawExecution({
+      startMessage: "Convert to Raw started. Running WeChat fetch script…",
+      successNotice: (path) => `Raw created: ${path}`,
+      successMessage: (path) => `Raw created: ${path}`,
+      failureNotice: (message) => `Convert to Raw failed: ${message}`,
+      failureMessage: (message) => `**Convert to Raw failed**: ${message}`,
+      run: () => createWorkflowExecutor().executeWechatRaw({ url: trimmedUrl, startedAt })
+    });
   }
 
   /**
@@ -1693,54 +1827,31 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
    * Images extracted to PARA/03Resources/01Raw/Assets/{title}/
    */
   async function convertPdfRaw() {
-    const action = "convert_to_raw";
     const startedAt = Date.now();
-    let step = "preflight";
 
     if (conn !== "connected") {
       new Notice("Convert to Raw failed: OpenClaw is not connected.");
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: "**Convert to Raw failed**: OpenClaw is not connected." }
-      ]);
+      appendSystemTurn("**Convert to Raw failed**: OpenClaw is not connected.");
       return;
     }
 
     const pdfPath = await promptForPdfPath();
     if (!pdfPath) {
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: "Convert to PDF Raw cancelled: no file selected." }
-      ]);
+      appendSystemTurn("Convert to PDF Raw cancelled: no file selected.");
       return;
     }
 
-    setSending(true);
     const file = props.app.vault.getAbstractFileByPath(pdfPath) as TFile | null;
     const title = file?.basename ?? pdfPath.split("/").pop()?.replace(/\.pdf$/i, "") ?? "PDF Note";
-    setTurns((prev) => [
-      ...prev,
-      { id: uid(), role: "user", createdAt: Date.now(), content: `Convert to Raw (PDF): ${title}` },
-      { id: uid(), role: "system", createdAt: Date.now(), content: "Extracting PDF content…" }
-    ]);
-
-    try {
-      const { created } = await createWorkflowExecutor().executePdfRaw({ pdfPath, startedAt });
-      new Notice(`PDF Raw created: ${created.path}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `PDF Raw created: ${created.path}` }
-      ]);
-    } catch (error) {
-      const message = errorMessage(error);
-      new Notice(`Convert to PDF Raw failed: ${message}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to PDF Raw failed**: ${message}` }
-      ]);
-    } finally {
-      setSending(false);
-    }
+    appendUserTurn(`Convert to Raw (PDF): ${title}`);
+    await withRawExecution({
+      startMessage: "Extracting PDF content…",
+      successNotice: (path) => `PDF Raw created: ${path}`,
+      successMessage: (path) => `PDF Raw created: ${path}`,
+      failureNotice: (message) => `Convert to PDF Raw failed: ${message}`,
+      failureMessage: (message) => `**Convert to PDF Raw failed**: ${message}`,
+      run: () => createWorkflowExecutor().executePdfRaw({ pdfPath, startedAt })
+    });
   }
 
   function promptForPdfPath(): Promise<string | null> {
@@ -1749,64 +1860,88 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     });
   }
 
+  function promptForMarkItDownPath(): Promise<string | null> {
+    return new Promise((resolve) => {
+      new MarkItDownFilePickerModal(props.app, resolve).open();
+    });
+  }
+
+  /**
+   * MarkItDown: select a vault file → markitdown CLI → raw note
+   * Supports DOCX, PPTX, XLSX, HTML, CSV, JSON, XML, ZIP, EPub, Markdown
+   */
+  async function convertMarkItDownRaw() {
+    const startedAt = Date.now();
+
+    if (conn !== "connected") {
+      new Notice("Convert to MarkItDown Raw failed: OpenClaw is not connected.");
+      appendSystemTurn("**Convert to MarkItDown Raw failed**: OpenClaw is not connected.");
+      return;
+    }
+
+    appendSystemTurn("Convert to MarkItDown Raw: waiting for domain selection…");
+    const domain = await chooseDomainForMarkItDownRaw();
+    if (!domain) {
+      appendSystemTurn("Convert to MarkItDown Raw cancelled: no domain selected.");
+      return;
+    }
+
+    const inputPath = await promptForMarkItDownPath();
+    if (!inputPath) {
+      appendSystemTurn("Convert to MarkItDown Raw cancelled: no file selected.");
+      return;
+    }
+
+    const file = props.app.vault.getAbstractFileByPath(inputPath) as TFile | null;
+    const title = file?.basename ?? inputPath.split("/").pop() ?? "MarkItDown Note";
+    appendUserTurn(`Convert to Raw (MarkItDown/${domain}): ${title}`);
+    await withRawExecution({
+      startMessage: `Extracting content via MarkItDown for ${domain}…`,
+      successNotice: (path) => `MarkItDown Raw created: ${path}`,
+      successMessage: (path) => `MarkItDown Raw created: ${path}`,
+      failureNotice: (message) => `Convert to MarkItDown Raw failed: ${message}`,
+      failureMessage: (message) => `**Convert to MarkItDown Raw failed**: ${message}`,
+      run: () => createWorkflowExecutor().executeMarkItDownRaw({ inputPath, domain, startedAt })
+    });
+  }
+
   /**
    * Non-biotech domains (openclaw/ai/general): generic content → raw note
    */
   async function convertGenericRaw(domain: "biotech" | "openclaw" | "ai" | "general", startedAt: number) {
-    const action = "convert_to_raw";
     const workflowName = `${domain}_to_raw`;
-    let step = "preflight";
 
     const content = await promptForRawContent();
     if (content == null) {
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: "Convert to Raw cancelled: no content entered." }
-      ]);
+      appendSystemTurn("Convert to Raw cancelled: no content entered.");
       return;
     }
     if (!content.trim()) {
+      const message = "content is required.";
       new Notice("Convert to Raw failed: content is required.");
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to Raw failed**: content is required.` }
-      ]);
+      appendSystemTurn(`**Convert to Raw failed**: ${message}`);
       await logError(props.app, {
-        action,
+        action: "convert_to_raw",
         workflow: workflowName,
         sourceNote: "",
         step: "validate_input",
         errorType: "ValidationError",
-        message: "content is required.",
+        message,
         durationMs: Date.now() - startedAt
       });
       return;
     }
 
-    setSending(true);
-    setTurns((prev) => [
-      ...prev,
-      { id: uid(), role: "user", createdAt: Date.now(), content: `Convert to Raw (${domain}): ${content.trim().slice(0, 80)}…` },
-      { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to Raw (${domain}) started. Processing content…` }
-    ]);
-
-    try {
-      const { created } = await createWorkflowExecutor().executeGenericRaw({ domain, content: content.trim(), startedAt });
-      new Notice(`Raw created: ${created.path}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `Raw created: ${created.path}` }
-      ]);
-    } catch (error) {
-      const message = errorMessage(error);
-      new Notice(`Convert to Raw failed: ${message}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to Raw failed**: ${message}` }
-      ]);
-    } finally {
-      setSending(false);
-    }
+    const trimmedContent = content.trim();
+    appendUserTurn(`Convert to Raw (${domain}): ${trimmedContent.slice(0, 80)}…`);
+    await withRawExecution({
+      startMessage: `Convert to Raw (${domain}) started. Processing content…`,
+      successNotice: (path) => `Raw created: ${path}`,
+      successMessage: (path) => `Raw created: ${path}`,
+      failureNotice: (message) => `Convert to Raw failed: ${message}`,
+      failureMessage: (message) => `**Convert to Raw failed**: ${message}`,
+      run: () => createWorkflowExecutor().executeGenericRaw({ domain, content: trimmedContent, startedAt })
+    });
   }
 
   async function organizeInsightLinks() {
@@ -1976,9 +2111,17 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     });
   }
 
-  function chooseDomainForRaw(): Promise<"biotech" | "openclaw" | "ai" | "general" | null> {
+  function chooseDomainForRaw(): Promise<RawDomain | null> {
     domainSelectionResolverRef.current?.(null);
-    setTopicPicker({ kind: "insight" });
+    setTopicPicker({ kind: "raw" });
+    return new Promise((resolve) => {
+      domainSelectionResolverRef.current = resolve;
+    });
+  }
+
+  function chooseDomainForMarkItDownRaw(): Promise<RawDomain | null> {
+    domainSelectionResolverRef.current?.(null);
+    setTopicPicker({ kind: "markitdown" });
     return new Promise((resolve) => {
       domainSelectionResolverRef.current = resolve;
     });
@@ -2027,7 +2170,7 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     });
   }
 
-  function chooseDomain(): Promise<"biotech" | "openclaw" | "ai" | "general" | null> {
+  function chooseDomain(): Promise<RawDomain | null> {
     domainSelectionResolverRef.current?.(null);
     setTopicPicker({ kind: "insight" });
     return new Promise((resolve) => {
@@ -2035,7 +2178,7 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     });
   }
 
-  function completeDomainSelection(domain: "biotech" | "openclaw" | "ai" | "general" | null) {
+  function completeDomainSelection(domain: RawDomain | null) {
     const resolve = domainSelectionResolverRef.current;
     domainSelectionResolverRef.current = null;
     setTopicPicker(null);
@@ -2141,6 +2284,90 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
       new Notice(`Fix Schema failed: ${message}`);
       setTurns((prev) => [...prev, { id: uid(), role: "system", createdAt: Date.now(), content: `**Fix Schema failed**: ${message}` }]);
       console.error("[OpenClaw] fix_frontmatter failed", error);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function translateCurrentNote() {
+    const action = "translate_note";
+    const workflowName = "raw_to_translated";
+    const startedAt = Date.now();
+    let step = "preflight";
+
+    if (conn !== "connected") {
+      new Notice("Translate failed: OpenClaw is not connected.");
+      setTurns((prev) => [
+        ...prev,
+        { id: uid(), role: "system", createdAt: Date.now(), content: `**Translate failed**: OpenClaw is not connected.` }
+      ]);
+      await logError(props.app, {
+        action,
+        workflow: workflowName,
+        sourceNote: "",
+        step,
+        errorType: "ConnectionError",
+        message: "OpenClaw is not connected.",
+        durationMs: Date.now() - startedAt
+      });
+      return;
+    }
+
+    const activeFile = props.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== "md") {
+      new Notice("Translate failed: No markdown note is open.");
+      setTurns((prev) => [
+        ...prev,
+        { id: uid(), role: "system", createdAt: Date.now(), content: `**Translate failed**: No markdown note is open.` }
+      ]);
+      await logError(props.app, {
+        action,
+        workflow: workflowName,
+        sourceNote: activeFile?.path ?? "",
+        step,
+        errorType: "PreflightError",
+        message: "No markdown note is open.",
+        durationMs: Date.now() - startedAt
+      });
+      return;
+    }
+
+    const title = activeFile.basename || activeFile.name.replace(/\.md$/i, "");
+    setSending(true);
+    setTurns((prev) => [
+      ...prev,
+      {
+        id: uid(),
+        role: "user",
+        createdAt: Date.now(),
+        content: `Translate to Chinese: ${title}`,
+        references: [{ kind: "file", path: activeFile.path, label: title }]
+      },
+      {
+        id: uid(),
+        role: "system",
+        createdAt: Date.now(),
+        content: "Translation started. Reading note and translating to Chinese…"
+      }
+    ]);
+    console.log("[OpenClaw] translate started", { path: activeFile.path });
+
+    try {
+      const { created } = await createWorkflowExecutor().executeTranslation({ activeFile, startedAt });
+      new Notice(`Translation created: ${created.path}`);
+      setTurns((prev) => [
+        ...prev,
+        { id: uid(), role: "system", createdAt: Date.now(), content: `Translation created: ${created.path}` }
+      ]);
+      console.log("[OpenClaw] translate completed", { path: created.path });
+    } catch (error) {
+      const message = errorMessage(error);
+      new Notice(`Translate failed: ${message}`);
+      setTurns((prev) => [
+        ...prev,
+        { id: uid(), role: "system", createdAt: Date.now(), content: `**Translate failed**: ${message}` }
+      ]);
+      console.error("[OpenClaw] translate failed", error);
     } finally {
       setSending(false);
     }
@@ -2255,6 +2482,9 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   convertPdfRawRef.current = () => {
     void convertPdfRaw();
   };
+  convertMarkItDownRawRef.current = () => {
+    void convertMarkItDownRaw();
+  };
   organizeLinksRef.current = () => {
     void organizeInsightLinks();
   };
@@ -2263,6 +2493,9 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   };
   fixFrontmatterRef.current = () => {
     void fixCurrentSchema();
+  };
+  translateNoteRef.current = () => {
+    void translateCurrentNote();
   };
 
   async function cycleUiSkin() {
@@ -2328,9 +2561,11 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
         onConvertToSystem={convertCurrentNoteToSystem}
         onConvertToRaw={convertToRaw}
         onConvertToPdf={convertPdfRaw}
+        onConvertToMarkItDown={convertMarkItDownRaw}
         onOrganizeLinks={organizeInsightLinks}
         onRewriteNote={rewriteCurrentNote}
         onFixSchema={fixCurrentSchema}
+        onTranslateNote={translateCurrentNote}
         currentModelName={currentModelName()}
         visibleTurns={visibleTurns}
         vaultRevision={vaultRevision}

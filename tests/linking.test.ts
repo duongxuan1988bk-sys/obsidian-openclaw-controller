@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { TFile } from "obsidian";
-import { buildLinkableNote, scoreLinkCandidate } from "../src/linking/NoteLinkOrganizer";
+import { buildLinkableNote, scoreLinkCandidate, upsertRelatedBlock } from "../src/linking/NoteLinkOrganizer";
 
 function file(path: string, ctime = Date.parse("2026-04-17T00:00:00")): TFile {
   const name = path.split("/").pop() ?? path;
@@ -115,3 +115,62 @@ RapidOCR, scanned PDF, PyMuPDF, OCR fallback, line-level blocks, full-page scan 
 );
 
 assert.equal(scoreLinkCandidate(alreadyLinkedSource!, target!), null, "existing wikilinks are excluded");
+
+const sourceWithReferences = `---
+type: insight
+date: 2026-04-17
+tags: [OCR, PDF]
+domain: openclaw
+workflow: raw_to_insight
+---
+
+# Scanned PDF OCR
+
+## Summary
+
+RapidOCR restores scanned PDF text.
+
+## References
+
+- paper.pdf
+`;
+
+const insertedBeforeReferences = upsertRelatedBlock(sourceWithReferences, [
+  {
+    sourcePath: "PARA/03Resources/02Insight/OpenClaw/01 Scanned PDF OCR.md",
+    targetPath: "PARA/03Resources/02Insight/OpenClaw/02 RapidOCR Support Added.md",
+    targetTitle: "RapidOCR Support Added",
+    description: "共享标签：ocr"
+  }
+]);
+
+assert.ok(
+  insertedBeforeReferences.indexOf("<!-- openclaw-related-notes:start -->") < insertedBeforeReferences.indexOf("## References"),
+  "new related notes block is inserted before trailing reference/source sections"
+);
+
+const withExistingRelatedBlock = `# Existing
+
+<!-- openclaw-related-notes:start -->
+## Related Notes
+
+- [[PARA/03Resources/02Insight/OpenClaw/02 RapidOCR Support Added|RapidOCR Support Added]]：旧说明
+<!-- openclaw-related-notes:end -->
+`;
+
+const mergedExistingBlock = upsertRelatedBlock(withExistingRelatedBlock, [
+  {
+    sourcePath: "PARA/03Resources/02Insight/OpenClaw/01 Scanned PDF OCR.md",
+    targetPath: "PARA/03Resources/02Insight/OpenClaw/02 RapidOCR Support Added.md",
+    targetTitle: "RapidOCR Support Added",
+    description: "新说明"
+  }
+]);
+
+assert.equal(
+  [...mergedExistingBlock.matchAll(/^- \[\[/gm)].length,
+  1,
+  "existing related note targets are updated instead of duplicated"
+);
+assert.ok(!mergedExistingBlock.includes("旧说明"), "old plugin block description is replaced");
+assert.ok(mergedExistingBlock.includes("新说明"), "approved description replaces existing plugin block description");

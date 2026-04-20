@@ -73,6 +73,19 @@ settings:
 - WeChat script path: `wechat_to_obsidian.py`
 - PDF script path: `pdf_to_obsidian.py`
 - Python executable for each script
+- MarkItDown command: `markitdown`
+
+MarkItDown raw capture asks for a domain before conversion and writes to:
+
+```text
+PARA/03Resources/01Raw/MarkItDown/<domain>/
+```
+
+Domain folder names follow the existing vault style: `Biotech`, `OpenClaw`,
+`AI`, and `General`.
+
+PDF files are handled by `pdf_to_raw`. MarkItDown raw capture is reserved for
+DOCX, PPTX, XLSX, HTML, CSV, JSON, XML, ZIP, EPUB, and Markdown files.
 
 The default script paths are empty on purpose, so personal filesystem paths are
 not committed.
@@ -95,6 +108,7 @@ Workflow behavior is driven by YAML registries in the vault:
 | `raw_to_insight` | yes | yes | yes | yes |
 | `wechat_to_raw` | yes | yes | yes | yes |
 | `pdf_to_raw` | yes | yes | yes | yes |
+| `markitdown_to_raw` | yes | yes | yes | yes |
 | `note_to_theory` | yes | yes | yes | no |
 | `note_to_case` | yes | no | no | no |
 | `note_to_method` | yes | no | no | no |

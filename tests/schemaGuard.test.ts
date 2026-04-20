@@ -105,3 +105,30 @@ tags: [ai]
 );
 
 assert.match(createdTimeTrimmed, /^created: 2026-04-01$/m, "created time component is removed");
+
+const failedRaw = ensureSchemaFrontmatter(
+  `---
+title: Failed MarkItDown
+date: 2026-04-19
+source: failed.docx
+tags: [raw, markitdown]
+type: raw
+status: failed-extract
+domain: biotech
+workflow: markitdown_to_raw
+---
+
+# Failed MarkItDown
+
+## Original Content
+
+[MarkItDown extraction failed]
+`,
+  {
+    inferredType: "raw",
+    activeNotePath: "PARA/03Resources/01Raw/MarkItDown/Biotech/Failed MarkItDown.md"
+  }
+);
+
+assert.match(failedRaw, /^status: failed-extract$/m, "raw schema guard preserves failed extraction status");
+assert.doesNotMatch(failedRaw, /^status: raw$/m, "raw schema guard does not rewrite failed extraction to raw");

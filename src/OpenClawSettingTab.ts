@@ -2,6 +2,8 @@ import { PluginSettingTab, Setting } from "obsidian";
 import type OpenClawControllerPlugin from "./main";
 import {
   DEFAULT_GATEWAY_URL,
+  DEFAULT_MARKITDOWN_TIMEOUT_MS,
+  DEFAULT_MARKITDOWN_PATH,
   DEFAULT_PDF_PYTHON_PATH,
   DEFAULT_PDF_SCRIPT_PATH,
   DEFAULT_PYTHON_PATH,
@@ -134,6 +136,37 @@ export class OpenClawSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.pdfPythonPath)
           .onChange(async (v) => {
             this.plugin.settings.pdfPythonPath = v.trim() || DEFAULT_PDF_PYTHON_PATH;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    containerEl.createEl("h3", { text: "MarkItDown" });
+
+    new Setting(containerEl)
+      .setName("MarkItDown command")
+      .setDesc("Command or path to markitdown CLI. Supports DOCX, PPTX, XLSX, HTML, CSV, JSON, XML, ZIP, and more.")
+      .addText((t) =>
+        t
+          .setPlaceholder(DEFAULT_MARKITDOWN_PATH)
+          .setValue(this.plugin.settings.markItDownPath)
+          .onChange(async (v) => {
+            this.plugin.settings.markItDownPath = v.trim() || DEFAULT_MARKITDOWN_PATH;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("MarkItDown timeout")
+      .setDesc("Maximum MarkItDown extraction time in milliseconds.")
+      .addText((t) =>
+        t
+          .setPlaceholder(String(DEFAULT_MARKITDOWN_TIMEOUT_MS))
+          .setValue(String(this.plugin.settings.markItDownTimeoutMs ?? DEFAULT_MARKITDOWN_TIMEOUT_MS))
+          .onChange(async (v) => {
+            const parsed = Number(v.trim());
+            this.plugin.settings.markItDownTimeoutMs = Number.isFinite(parsed) && parsed > 0
+              ? parsed
+              : DEFAULT_MARKITDOWN_TIMEOUT_MS;
             await this.plugin.saveSettings();
           })
       );

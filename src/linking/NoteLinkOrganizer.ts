@@ -66,6 +66,29 @@ const STRONG_THRESHOLD = 80;
 const DISPLAY_THRESHOLD = 65;
 const MIN_EFFECTIVE_KEYWORDS = 5;
 const MIN_EFFECTIVE_CONTENT_LENGTH = 300;
+const RELATED_BLOCK_TRAILING_SECTIONS = new Set([
+  "references",
+  "reference",
+  "sources",
+  "source",
+  "source material",
+  "original content",
+  "original text",
+  "appendix",
+  "appendices",
+  "attachments",
+  "attachment",
+  "change log",
+  "changelog",
+  "来源",
+  "原文",
+  "参考",
+  "参考资料",
+  "引用",
+  "附件",
+  "附录",
+  "变更记录"
+]);
 
 const LINKABLE_TYPES = new Set<LinkableNoteType>([
   "insight",
@@ -503,6 +526,10 @@ function renderRelatedBlock(items: ApprovedLinkCandidate[]): string {
   return `${RELATED_NOTES_START}\n## Related Notes\n\n${lines.join("\n")}\n${RELATED_NOTES_END}\n`;
 }
 
+function normalizeHeading(value: string): string {
+  return normalizeTerm(value.replace(/#+$/, "").trim());
+}
+
 function existingPluginBlockItems(markdown: string): ApprovedLinkCandidate[] {
   const start = markdown.indexOf(RELATED_NOTES_START);
   const end = markdown.indexOf(RELATED_NOTES_END);
@@ -521,7 +548,24 @@ function existingPluginBlockItems(markdown: string): ApprovedLinkCandidate[] {
   return items;
 }
 
-function upsertRelatedBlock(markdown: string, approved: ApprovedLinkCandidate[]): string {
+function findRelatedBlockInsertIndex(markdown: string): number | null {
+  for (const match of markdown.matchAll(/^#{2,6}\s+(.+)$/gm)) {
+    const heading = normalizeHeading(match[1] ?? "");
+    if (RELATED_BLOCK_TRAILING_SECTIONS.has(heading)) return match.index ?? null;
+  }
+  return null;
+}
+
+function insertRelatedBlock(markdown: string, block: string): string {
+  const insertIndex = findRelatedBlockInsertIndex(markdown);
+  if (insertIndex == null) return `${markdown.trimEnd()}\n\n${block}`;
+
+  const before = markdown.slice(0, insertIndex).trimEnd();
+  const after = markdown.slice(insertIndex).trimStart();
+  return `${before}\n\n${block}\n${after}`;
+}
+
+export function upsertRelatedBlock(markdown: string, approved: ApprovedLinkCandidate[]): string {
   const existing = existingPluginBlockItems(markdown);
   const merged = new Map<string, ApprovedLinkCandidate>();
   for (const item of existing) merged.set(normalizeLinkTarget(item.targetPath), item);
@@ -531,7 +575,7 @@ function upsertRelatedBlock(markdown: string, approved: ApprovedLinkCandidate[])
   if (markerPattern.test(markdown)) {
     return markdown.replace(markerPattern, block);
   }
-  return `${markdown.trimEnd()}\n\n${block}`;
+  return insertRelatedBlock(markdown, block);
 }
 
 export class NoteLinkOrganizer {

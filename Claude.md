@@ -47,6 +47,8 @@ Insight → domain_mapping → top-level fallback
 ### Local raw extraction
 - WeChat: `rawExtractors.runWechatScript()` → `wechat_to_obsidian.py` (AppleScript + Chrome/Safari)
 - PDF: `rawExtractors.runPdfScript()` → `pdf_to_obsidian.py` (PyMuPDF + RapidOCR fallback for scanned PDFs)
+- MarkItDown: choose domain → `rawExtractors.runMarkItDownScript()` → `markitdown` CLI (DOCX/PPTX/XLSX/HTML/CSV/JSON/XML/ZIP/EPUB/Markdown) → `PARA/03Resources/01Raw/MarkItDown/{Biotech|OpenClaw|AI|General}/`
+- PDF is intentionally handled only by the dedicated PDF raw workflow for OCR and vault asset extraction.
 - Script paths and Python executables are plugin settings (not hardcoded)
 
 ## 4. Registry Rules
@@ -167,6 +169,7 @@ All executions logged with Beijing time (CST, UTC+8), `YYYY-MM-DD HH:mm:ss` form
 | `raw_to_insight` | ✅ | ✅ | ✅ | ✅ |
 | `wechat_to_raw` | ✅ | ✅ | ✅ | ✅ |
 | `pdf_to_raw` | ✅ | ✅ | ✅ | ✅ |
+| `markitdown_to_raw` | ✅ | ✅ | ✅ | ✅ |
 | `note_to_theory` | ✅ (topic) | ✅ | ✅ | — |
 | `note_to_case` | ✅ (topic) | — | — | — |
 | `note_to_method` | ✅ (topic) | — | — | — |
@@ -189,5 +192,5 @@ npm test
 ## 11. Pending
 
 - Planner v4 — disabled; button-based action is primary entry
-- Note link organization v2 — body insertion (future)
+- Note link organization v2 — body insertion before trailing source/reference sections
 - Note link organization v3 — periodic reminder (future)

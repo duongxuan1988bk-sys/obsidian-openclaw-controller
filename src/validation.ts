@@ -16,6 +16,7 @@
 /** Result of validateInput */
 export type InputValidationResult =
   | { level: "PASS"; reason: string }
+  | { level: "WARNING"; reason: string }
   | { level: "FAIL"; reason: string };
 
 /** Result of validateNote */
@@ -29,9 +30,19 @@ export type ValidationContext = {
   workflowName: string;
   currentNoteContent?: string;
   url?: string;
+  inputPath?: string;
   topic?: string;
   domain?: string;
 };
+
+// ---------------------------------------------------------------------------
+// Content size thresholds (characters)
+// ---------------------------------------------------------------------------
+
+/** Warn but allow processing for content above this size */
+const CONTENT_SIZE_WARNING_THRESHOLD = 30000;
+/** Reject content above this size */
+const CONTENT_SIZE_ERROR_THRESHOLD = 80000;
 
 // ---------------------------------------------------------------------------
 // Frontmatter helpers
@@ -137,17 +148,18 @@ function extractSections(markdown: string): Set<string> {
  * FAIL with a human-readable reason otherwise.
  */
 export function validateInput(context: ValidationContext): InputValidationResult {
-  const { workflowName, currentNoteContent, url, topic, domain } = context;
+  const { workflowName, currentNoteContent, url, inputPath, topic, domain } = context;
 
   // --- Global rules ---
 
-  if (currentNoteContent === undefined && url === undefined) {
-    return { level: "FAIL", reason: "Input is required: no content or URL was provided." };
+  if (currentNoteContent === undefined && url === undefined && inputPath === undefined) {
+    return { level: "FAIL", reason: "Input is required: no content, URL, or file path was provided." };
   }
 
   const hasContentString =
     typeof currentNoteContent === "string" && currentNoteContent.trim().length > 0;
   const hasUrlString = typeof url === "string" && url.trim().length > 0;
+  const hasInputPathString = typeof inputPath === "string" && inputPath.trim().length > 0;
 
   if (currentNoteContent !== undefined && typeof currentNoteContent !== "string") {
     return { level: "FAIL", reason: "currentNoteContent must be a string." };
@@ -155,6 +167,10 @@ export function validateInput(context: ValidationContext): InputValidationResult
 
   if (url !== undefined && typeof url !== "string") {
     return { level: "FAIL", reason: "url must be a string." };
+  }
+
+  if (inputPath !== undefined && typeof inputPath !== "string") {
+    return { level: "FAIL", reason: "inputPath must be a string." };
   }
 
   // --- Workflow-specific rules ---
@@ -170,11 +186,54 @@ export function validateInput(context: ValidationContext): InputValidationResult
       return { level: "PASS", reason: "Input is valid for wechat_to_raw." };
     }
 
+    case "markitdown_to_raw": {
+      if (!hasInputPathString) {
+        return { level: "FAIL", reason: "markitdown_to_raw requires an inputPath field." };
+      }
+      if (/\.pdf$/i.test(inputPath!)) {
+        return { level: "FAIL", reason: "markitdown_to_raw does not accept PDF files. Use pdf_to_raw for PDFs." };
+      }
+      return { level: "PASS", reason: "Input is valid for markitdown_to_raw." };
+    }
+
     case "raw_to_insight": {
       if (!hasContentString) {
         return { level: "FAIL", reason: "raw_to_insight requires a non-empty currentNoteContent." };
       }
+      const charCount = currentNoteContent!.length;
+      if (charCount > CONTENT_SIZE_ERROR_THRESHOLD) {
+        return {
+          level: "FAIL",
+          reason: `Content is very large (${charCount} characters). Please split into smaller Raw notes before converting to Insight.`
+        };
+      }
+      if (charCount > CONTENT_SIZE_WARNING_THRESHOLD) {
+        return {
+          level: "WARNING",
+          reason: `Content is large (${charCount} characters). Processing may take longer than usual.`
+        };
+      }
       return { level: "PASS", reason: "Input is valid for raw_to_insight." };
+    }
+
+    case "raw_to_translated": {
+      if (!hasContentString) {
+        return { level: "FAIL", reason: "raw_to_translated requires a non-empty currentNoteContent." };
+      }
+      const charCount = currentNoteContent!.length;
+      if (charCount > CONTENT_SIZE_ERROR_THRESHOLD) {
+        return {
+          level: "FAIL",
+          reason: `Content is very large (${charCount} characters). Please split into smaller notes before translating.`
+        };
+      }
+      if (charCount > CONTENT_SIZE_WARNING_THRESHOLD) {
+        return {
+          level: "WARNING",
+          reason: `Content is large (${charCount} characters). Translation may take longer than usual.`
+        };
+      }
+      return { level: "PASS", reason: "Input is valid for raw_to_translated." };
     }
 
     case "note_to_theory": {

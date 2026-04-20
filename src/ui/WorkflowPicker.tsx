@@ -3,7 +3,7 @@
  *
  * The MiniSelect dropdown (quick-action menu) embedded in the input bar.
  * Shows the list of available workflow shortcuts:
- *   Convert to Insight / Theory / Case / Doc / Debug / System / Raw / PDF
+ *   Convert to Insight / Theory / Case / Doc / Debug / System / Raw / PDF / MarkItDown
  *   Organize Note Links / Rewrite Note / Fix Schema
  *
  * This was previously inline JSX inside the oc-composer-pill in view.tsx.
@@ -28,9 +28,11 @@ type Props = {
   onConvertToSystem: () => void;
   onConvertToRaw: () => void;
   onConvertToPdf: () => void;
+  onConvertToMarkItDown: () => void;
   onOrganizeLinks: () => void;
   onRewriteNote: () => void;
   onFixSchema: () => void;
+  onTranslateNote: () => void;
 };
 
 // Map selected value → trigger the appropriate callback, then reset to default
@@ -46,9 +48,11 @@ function handleChange(
     onConvertToSystem: () => void;
     onConvertToRaw: () => void;
     onConvertToPdf: () => void;
+    onConvertToMarkItDown: () => void;
     onOrganizeLinks: () => void;
     onRewriteNote: () => void;
     onFixSchema: () => void;
+    onTranslateNote: () => void;
     setQuickAction: (v: string) => void;
   }
 ) {
@@ -81,6 +85,9 @@ function handleChange(
     case "convert-to-pdf":
       cbs.onConvertToPdf();
       break;
+    case "convert-to-markitdown":
+      cbs.onConvertToMarkItDown();
+      break;
     case "organize-links":
       cbs.onOrganizeLinks();
       break;
@@ -89,6 +96,9 @@ function handleChange(
       break;
     case "fix-schema":
       cbs.onFixSchema();
+      break;
+    case "translate-note":
+      cbs.onTranslateNote();
       break;
     default:
       break;
@@ -109,9 +119,11 @@ export function WorkflowPicker({
   onConvertToSystem,
   onConvertToRaw,
   onConvertToPdf,
+  onConvertToMarkItDown,
   onOrganizeLinks,
   onRewriteNote,
   onFixSchema,
+  onTranslateNote,
 }: Props) {
   const setQuickAction = onChange;
 
@@ -130,9 +142,11 @@ export function WorkflowPicker({
           onConvertToSystem,
           onConvertToRaw,
           onConvertToPdf,
+          onConvertToMarkItDown,
           onOrganizeLinks,
           onRewriteNote,
           onFixSchema,
+          onTranslateNote,
           setQuickAction,
         })
       }
@@ -154,10 +168,12 @@ export function WorkflowPicker({
         { value: "section-process", label: "处理", type: "section" },
         { value: "rewrite-note", label: "Rewrite Note", description: "replace with a clearer version" },
         { value: "fix-schema", label: "Fix Schema", description: "repair current frontmatter" },
+        { value: "translate-note", label: "Translate", description: "English → Chinese translation" },
         { value: "organize-links", label: "Note Links", description: "review Related Notes candidates" },
         { value: "section-capture", label: "抓取", type: "section" },
         { value: "convert-to-raw", label: "WeChat Raw", description: "WeChat URL → raw note" },
         { value: "convert-to-pdf", label: "PDF Raw", description: "vault PDF → raw note" },
+        { value: "convert-to-markitdown", label: "MarkItDown", description: "DOCX/PPT/XLSX/HTML → raw note" },
       ]}
     />
   );

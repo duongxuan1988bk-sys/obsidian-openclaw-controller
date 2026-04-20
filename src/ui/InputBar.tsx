@@ -16,7 +16,7 @@
  */
 
 import React, { useRef } from "react";
-import { FileSearch, Plus, Settings2, Clock3, Send, Sparkles, Cpu, X } from "lucide-react";
+import { FileSearch, Plus, Settings2, Clock3, Send, Sparkles, Cpu, X, Languages } from "lucide-react";
 import type { App as ObsidianApp, TAbstractFile, TFile } from "obsidian";
 import { PickerPopover, type PickerItem } from "./components/PickerPopover";
 import { WorkflowPicker } from "./WorkflowPicker";
@@ -67,9 +67,11 @@ type Props = {
   onConvertToSystem: () => void;
   onConvertToRaw: () => void;
   onConvertToPdf: () => void;
+  onConvertToMarkItDown: () => void;
   onOrganizeLinks: () => void;
   onRewriteNote: () => void;
   onFixSchema: () => void;
+  onTranslateNote: () => void;
 
   // Model display
   currentModelName: string;
@@ -115,9 +117,11 @@ export function InputBar({
   onConvertToSystem,
   onConvertToRaw,
   onConvertToPdf,
+  onConvertToMarkItDown,
   onOrganizeLinks,
   onRewriteNote,
   onFixSchema,
+  onTranslateNote,
   currentModelName,
   visibleTurns,
   vaultRevision,
@@ -218,10 +222,20 @@ export function InputBar({
               onConvertToSystem={onConvertToSystem}
               onConvertToRaw={onConvertToRaw}
               onConvertToPdf={onConvertToPdf}
+              onConvertToMarkItDown={onConvertToMarkItDown}
               onOrganizeLinks={onOrganizeLinks}
               onRewriteNote={onRewriteNote}
               onFixSchema={onFixSchema}
+              onTranslateNote={onTranslateNote}
             />
+            <button
+              className="oc-glass-icon-btn"
+              type="button"
+              onClick={() => onTranslateNote()}
+              title="Translate note (English → Chinese)"
+            >
+              <Languages size={14} />
+            </button>
             <button
               ref={filesBtnRef}
               className="oc-glass-text-btn"

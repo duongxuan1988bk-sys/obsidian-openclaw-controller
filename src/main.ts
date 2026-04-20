@@ -18,9 +18,11 @@ export type ConversionType =
   | "theory"
   | "case"
   | "raw"
+  | "markItDown"
   | "organizeLinks"
   | "rewrite"
-  | "fixFrontmatter";
+  | "fixFrontmatter"
+  | "translation";
 
 export default class OpenClawControllerPlugin extends Plugin {
   settings: OpenClawSettings = DEFAULT_SETTINGS;
@@ -42,9 +44,11 @@ export default class OpenClawControllerPlugin extends Plugin {
   private convertToCaseListeners = new Set<() => void | Promise<void>>();
   private convertToRawListeners = new Set<() => void | Promise<void>>();
   private convertToPdfListeners = new Set<() => void | Promise<void>>();
+  private convertToMarkItDownListeners = new Set<() => void | Promise<void>>();
   private organizeLinksListeners = new Set<() => void | Promise<void>>();
   private rewriteCurrentNoteListeners = new Set<() => void | Promise<void>>();
   private fixFrontmatterListeners = new Set<() => void | Promise<void>>();
+  private convertToTranslationListeners = new Set<() => void | Promise<void>>();
 
   // -----------------------------------------------------------------------
   // ConversionType → listener-set mapping
@@ -63,12 +67,16 @@ export default class OpenClawControllerPlugin extends Plugin {
         return this.convertToCaseListeners;
       case "raw":
         return this.convertToRawListeners;
+      case "markItDown":
+        return this.convertToMarkItDownListeners;
       case "organizeLinks":
         return this.organizeLinksListeners;
       case "rewrite":
         return this.rewriteCurrentNoteListeners;
       case "fixFrontmatter":
         return this.fixFrontmatterListeners;
+      case "translation":
+        return this.convertToTranslationListeners;
     }
   }
 
@@ -85,12 +93,16 @@ export default class OpenClawControllerPlugin extends Plugin {
         return "OpenClaw view is not ready yet. Please try Convert to Case again.";
       case "raw":
         return "OpenClaw view is not ready yet. Please try Convert to Raw again.";
+      case "markItDown":
+        return "OpenClaw view is not ready yet. Please try Convert to MarkItDown again.";
       case "organizeLinks":
         return "OpenClaw view is not ready yet. Please try Organize Note Links again.";
       case "rewrite":
         return "OpenClaw view is not ready yet. Please try Rewrite Note again.";
       case "fixFrontmatter":
         return "OpenClaw view is not ready yet. Please try Fix Schema again.";
+      case "translation":
+        return "OpenClaw view is not ready yet. Please try Translate again.";
     }
   }
 
@@ -200,6 +212,17 @@ export default class OpenClawControllerPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "convert-markitdown-to-raw",
+      name: "OpenClaw: Convert MarkItDown file to Raw note",
+      checkCallback: (checking) => {
+        if (!checking) {
+          void this.requestConvertToMarkItDown();
+        }
+        return true;
+      }
+    });
+
+    this.addCommand({
       id: "organize-note-links",
       name: "OpenClaw: Organize Note links",
       checkCallback: (checking) => {
@@ -231,6 +254,19 @@ export default class OpenClawControllerPlugin extends Plugin {
         if (!activeFile || activeFile.extension !== "md") return false;
         if (!checking) {
           void this.requestFixFrontmatter();
+        }
+        return true;
+      }
+    });
+
+    this.addCommand({
+      id: "translate-current-note",
+      name: "OpenClaw: Translate current note (English to Chinese)",
+      checkCallback: (checking) => {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile || activeFile.extension !== "md") return false;
+        if (!checking) {
+          void this.requestConvertToTranslation();
         }
         return true;
       }
@@ -315,6 +351,11 @@ export default class OpenClawControllerPlugin extends Plugin {
     return () => this.convertToPdfListeners.delete(cb);
   }
 
+  onConvertToMarkItDownRequested(cb: () => void | Promise<void>): () => void {
+    this.convertToMarkItDownListeners.add(cb);
+    return () => this.convertToMarkItDownListeners.delete(cb);
+  }
+
   onOrganizeLinksRequested(cb: () => void | Promise<void>): () => void {
     this.organizeLinksListeners.add(cb);
     return () => this.organizeLinksListeners.delete(cb);
@@ -328,6 +369,11 @@ export default class OpenClawControllerPlugin extends Plugin {
   onFixFrontmatterRequested(cb: () => void | Promise<void>): () => void {
     this.fixFrontmatterListeners.add(cb);
     return () => this.fixFrontmatterListeners.delete(cb);
+  }
+
+  onConvertToTranslationRequested(cb: () => void | Promise<void>): () => void {
+    this.convertToTranslationListeners.add(cb);
+    return () => this.convertToTranslationListeners.delete(cb);
   }
 
   // ---------------------------------------------------------------------------
@@ -358,6 +404,10 @@ export default class OpenClawControllerPlugin extends Plugin {
     }
   }
 
+  private async requestConvertToMarkItDown() {
+    await this.requestConversion("markItDown");
+  }
+
   private async requestOrganizeLinks() {
     await this.requestConversion("organizeLinks");
   }
@@ -368,6 +418,10 @@ export default class OpenClawControllerPlugin extends Plugin {
 
   private async requestFixFrontmatter() {
     await this.requestConversion("fixFrontmatter");
+  }
+
+  private async requestConvertToTranslation() {
+    await this.requestConversion("translation");
   }
 
   async loadOpenClawCatalog(): Promise<OpenClawCatalog> {

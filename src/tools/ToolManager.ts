@@ -182,8 +182,12 @@ export class ToolManager {
   private async ensureParentFolders(vault: Vault, fullPath: string) {
     const parts = fullPath.split("/");
     if (parts.length <= 1) return;
-    const dir = parts.slice(0, -1).join("/");
-    if (!dir) return;
-    await vault.createFolder(dir).catch(() => {});
+    let current = "";
+    for (const part of parts.slice(0, -1)) {
+      current = current ? `${current}/${part}` : part;
+      if (!vault.getAbstractFileByPath(current)) {
+        await vault.createFolder(current);
+      }
+    }
   }
 }

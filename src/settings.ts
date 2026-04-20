@@ -34,17 +34,21 @@ export type OpenClawSettings = {
   paraMethodBase: string;
   wechatScriptPath: string;
   pdfScriptPath: string;
+  markItDownPath: string;
   pythonPath: string;
   pdfPythonPath: string;
   wechatScriptTimeoutMs: number;
   pdfScriptTimeoutMs: number;
+  markItDownTimeoutMs: number;
 };
 
 export const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789/";
 export const DEFAULT_WECHAT_SCRIPT_PATH = "";
 export const DEFAULT_PDF_SCRIPT_PATH = "";
+export const DEFAULT_MARKITDOWN_PATH = "markitdown";
 export const DEFAULT_PYTHON_PATH = "python3";
 export const DEFAULT_PDF_PYTHON_PATH = "python3";
+export const DEFAULT_MARKITDOWN_TIMEOUT_MS = 120000;
 
 export const DEFAULT_SETTINGS: OpenClawSettings = {
   gatewayUrl: DEFAULT_GATEWAY_URL,
@@ -64,8 +68,10 @@ export const DEFAULT_SETTINGS: OpenClawSettings = {
   paraMethodBase: "PARA/Methods",
   wechatScriptPath: DEFAULT_WECHAT_SCRIPT_PATH,
   pdfScriptPath: DEFAULT_PDF_SCRIPT_PATH,
+  markItDownPath: DEFAULT_MARKITDOWN_PATH,
   pythonPath: DEFAULT_PYTHON_PATH,
   pdfPythonPath: DEFAULT_PDF_PYTHON_PATH,
   wechatScriptTimeoutMs: 60000,
-  pdfScriptTimeoutMs: 120000
+  pdfScriptTimeoutMs: 120000,
+  markItDownTimeoutMs: DEFAULT_MARKITDOWN_TIMEOUT_MS
 };
