@@ -8,9 +8,9 @@ to a local OpenClaw node. It provides a side-panel chat UI, `@note` references,
 session controls, note write-back, and a small set of basic workflows designed
 to be portable across different vaults.
 
-This repository is the public core extracted from a larger private plugin. The
-goal is to keep the reusable controller layer and remove personal domain
-workflows.
+This repository contains the open-source controller layer of the plugin, with
+the reusable Obsidian and OpenClaw integration kept intact and private
+domain-specific workflows removed.
 
 ## What It Includes
 
@@ -62,7 +62,7 @@ Once releases are published, copy these files into:
 
 ## Settings
 
-The plugin expects these settings in Obsidian:
+Configure these settings in Obsidian:
 
 - `Gateway URL`
 - `Client ID`
@@ -92,7 +92,7 @@ The `Gateway token` field accepts either:
 
 After successful pairing, the plugin stores device credentials locally.
 
-For a local checkout of this repository, the usual script path values are:
+If you install from this repository source, the usual script path values are:
 
 ```text
 <repo>/scripts/wechat_to_obsidian.py
@@ -202,8 +202,8 @@ Scans the vault and updates related-note suggestions for the active note.
 
 ## Registry System
 
-The plugin still uses registry files, but the open-source version is designed to
-work with a smaller, generic set of defaults.
+The plugin uses registry files, and the open-source version is designed to work
+with a smaller, generic set of defaults.
 
 Expected vault registry paths:
 
@@ -240,7 +240,7 @@ Build output:
 - `styles.css`
 - `manifest.json`
 
-## Repository Notes
+## Security Notes
 
 Do not commit runtime secrets such as:
 
@@ -250,9 +250,8 @@ Do not commit runtime secrets such as:
 - private keys
 - personal script paths
 
-The example settings file is `data.example.json`.
+An example settings file is included as `data.example.json`.
 
 ## License
 
-This local draft now includes an MIT license. Change it before publishing if
-you want different terms.
+This repository is released under the MIT License. See [LICENSE](LICENSE).
