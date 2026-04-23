@@ -1,195 +1,193 @@
-# OpenClaw Controller
+# Obsidian to OpenClaw
 
-OpenClaw Controller is a desktop-only Obsidian plugin for running AI-assisted
-note workflows through a local OpenClaw Gateway. It provides a side-panel UI,
-workflow shortcuts, domain-aware note generation, raw source conversion, schema
-repair, and related-note organization for a PARA-style vault.
+Open-source Obsidian plugin repository:
+`duongxuan1988bk-sys/obsidian-openclaw-controller`
 
-This repository is private and is maintained as the source of truth for the
-local Obsidian plugin folder.
+`Obsidian to OpenClaw` is a desktop-only Obsidian plugin that connects your vault
+to a local OpenClaw node. It provides a side-panel chat UI, `@note` references,
+session controls, note write-back, and a small set of basic workflows designed
+to be portable across different vaults.
 
-## What It Does
+This repository is the public core extracted from a larger private plugin. The
+goal is to keep the reusable controller layer and remove personal domain
+workflows.
 
-- Connects Obsidian to a local OpenClaw Gateway over WebSocket.
-- Runs registry-driven workflows for note creation, conversion, rewrite, and
-  frontmatter repair.
-- Supports domain-aware outputs for `biotech`, `openclaw`, `ai`, and `general`.
-- Converts WeChat articles, PDF files, and MarkItDown-supported files into Raw notes.
-- Splits PDF Raw output into section notes when paper headings are available.
-- Translates the active markdown note from English to Chinese into a translated Raw note.
-- Validates note frontmatter before writeback.
-- Organizes related Insight links automatically.
-- Builds a production Obsidian plugin bundle: `main.js`, `styles.css`, and
-  `manifest.json`.
+## What It Includes
 
-## Local Workflow
+- OpenClaw WebSocket connection from inside Obsidian
+- Side-panel chat UI
+- `@note` context references
+- `Settings`, `New Chat`, and `History` controls
+- Write latest reply back into the current note
+- Basic workflows:
+  `WeChat Raw`, `PDF Raw`, `MarkItDown`, `Rewrite Note`, `Fix Schema`, `Note Links`
 
-The expected setup is to map this project folder directly to Obsidian's plugin
-directory, for example:
+## What It Does Not Include
+
+- Personal biotech workflows
+- Domain-specific `theory`, `case`, `method`, `doc`, `debug`, or `system` menus
+- Private prompt packs
+- Private path routing conventions beyond the default sample registry
+
+## Install
+
+### Manual install for local development
+
+Copy or link this folder into your Obsidian plugin directory, for example:
 
 ```text
-<vault>/.obsidian/plugins/openclaw-controller
+<your-vault>/.obsidian/plugins/obsidian-to-openclaw
 ```
 
-With that setup, Obsidian runs the local files from this repository. GitHub is
-only used for version control and backup. Updating GitHub does not update
-Obsidian by itself; Obsidian sees changes after the local plugin bundle is
-rebuilt and the plugin is reloaded.
-
-Typical development loop:
+Then build the plugin:
 
 ```bash
 npm install
 npm run build
 ```
 
-Then reload the plugin in Obsidian, or restart Obsidian.
+Reload the plugin in Obsidian after each rebuild.
 
-## Commands
+### Release install
 
-```bash
-npm run dev        # watch TypeScript bundle for local development
-npm run build      # typecheck, run tests, build CSS, build production JS
-npm run typecheck  # TypeScript validation only
-npm test           # regression tests
-```
-
-`npm run build` produces a production `main.js` without inline sourcemaps.
-
-## Runtime Configuration
-
-Obsidian stores plugin settings in `data.json`. This file is intentionally
-ignored by git because it may contain:
-
-- OpenClaw gateway bootstrap tokens
-- device tokens
-- Ed25519 private keys
-- local script paths
-- personal vault path settings
-
-Use `data.example.json` only as a non-secret reference.
-
-Local raw extraction requires script paths to be configured in the plugin
-settings:
-
-- WeChat script path: `wechat_to_obsidian.py`
-- PDF script path: `pdf_to_obsidian.py`
-- Python executable for each script
-- MarkItDown command: `markitdown`
-
-MarkItDown raw capture asks for a domain before conversion and writes to:
+Once releases are published, copy these files into:
 
 ```text
-PARA/03Resources/01Raw/MarkItDown/<domain>/
+<your-vault>/.obsidian/plugins/obsidian-to-openclaw/
 ```
 
-Domain folder names follow the existing vault style: `Biotech`, `OpenClaw`,
-`AI`, and `General`.
+- `manifest.json`
+- `main.js`
+- `styles.css`
 
-PDF files are handled by `pdf_to_raw`. MarkItDown raw capture is reserved for
-DOCX, PPTX, XLSX, HTML, CSV, JSON, XML, ZIP, EPUB, and Markdown files.
+## Settings
 
-PDF Raw extraction writes sectioned output under:
+The plugin expects these settings in Obsidian:
+
+- `Gateway URL`
+- `Client ID`
+- `Client mode`
+- `Gateway token`
+- `WeChat script path`
+- `WeChat Python`
+- `PDF script path`
+- `PDF Python`
+- `MarkItDown command`
+- `MarkItDown timeout`
+
+For OpenClaw node pairing, the usual values are:
+
+- `Client ID`: `node-host`
+- `Client mode`: `node`
+
+The `Gateway token` field accepts either:
+
+- a raw node/bootstrap token
+- a full setup code produced by `openclaw qr --setup-code-only`
+
+After successful pairing, the plugin stores device credentials locally.
+
+## Default Workflows
+
+### WeChat Raw
+
+Converts a WeChat article URL into a raw note using your configured local
+`wechat_to_obsidian.py` script.
+
+Output path:
+
+```text
+PARA/03Resources/01Raw/WeChat/
+```
+
+### PDF Raw
+
+Converts a PDF in the vault into one or more raw notes using your configured
+`pdf_to_obsidian.py` script.
+
+Output path:
 
 ```text
 PARA/03Resources/01Raw/PDF/<PDF filename>/
 ```
 
-When recognized paper sections such as Abstract, Introduction, Methods,
-Results, Discussion, References, or Supplementary are present, each section is
-written as its own Raw note. The splitter preserves lead metadata before the
-first section heading by placing it in the first section note.
+### MarkItDown
 
-Translation writes English-to-Chinese output under:
+Converts supported files such as `docx`, `pptx`, `xlsx`, `html`, `csv`, `json`,
+`xml`, `zip`, `epub`, and `md` into raw notes using the `markitdown` CLI.
+
+Output path:
 
 ```text
-PARA/03Resources/01Raw/Translated/
+PARA/03Resources/01Raw/MarkItDown/
 ```
 
-Large note inputs are guarded before model workflows run: content above 30,000
-characters shows a warning, and content above 80,000 characters is rejected so
-the note can be split first.
+### Rewrite Note
 
-The default script paths are empty on purpose, so personal filesystem paths are
-not committed.
+Rewrites the current note into a clearer, more structured version while keeping
+it in place.
+
+### Fix Schema
+
+Repairs the current note's frontmatter so it matches the target schema.
+
+### Note Links
+
+Scans the vault and updates related-note suggestions for the active note.
 
 ## Registry System
 
-Workflow behavior is driven by YAML registries in the vault:
+The plugin still uses registry files, but the open-source version is designed to
+work with a smaller, generic set of defaults.
 
-| Registry | Purpose |
-| --- | --- |
-| `workflow_registry.yaml` | Workflow actions and routing rules |
-| `schema_registry.yaml` | Required and optional fields per note type |
-| `prompt_registry.yaml` | LLM prompts with domain constraints |
-| `path_mapping.yaml` | Output directories per type and domain |
+Expected vault registry paths:
 
-## Supported Workflows
+- `PARA/03Resources/00System/Workflow Registry/workflow_registry.yaml`
+- `PARA/03Resources/00System/Schema/schema_registry.yaml`
+- `PARA/03Resources/00System/Prompts/prompt_registry.yaml`
+- `PARA/03Resources/00System/Path Mapping/path_mapping.yaml`
 
-| Workflow | biotech | openclaw | ai | general |
-| --- | --- | --- | --- | --- |
-| `raw_to_insight` | yes | yes | yes | yes |
-| `wechat_to_raw` | yes | yes | yes | yes |
-| `pdf_to_raw` | yes | yes | yes | yes |
-| `markitdown_to_raw` | yes | yes | yes | yes |
-| `raw_to_translated` | yes | yes | yes | yes |
-| `note_to_theory` | yes | yes | yes | no |
-| `note_to_case` | yes | no | no | no |
-| `note_to_method` | yes | no | no | no |
-| `note_to_case_by_domain` | no | yes | yes | no |
-| `note_to_doc` | no | yes | yes | no |
-| `note_to_debug` | no | yes | yes | no |
-| `note_to_system` | no | yes | yes | no |
-| `rewrite_current_note` | yes | yes | yes | yes |
-| `fix_frontmatter` | yes | yes | yes | yes |
-| `organize_related_notes` | yes | yes | yes | yes |
+If these files do not exist in the vault, the plugin falls back to the bundled
+sample registry included in this repository:
 
-## Architecture
+- [default-registry/workflow_registry.yaml.md](default-registry/workflow_registry.yaml.md)
+- [default-registry/schema_registry.yaml.md](default-registry/schema_registry.yaml.md)
+- [default-registry/prompt_registry.yaml.md](default-registry/prompt_registry.yaml.md)
+- [default-registry/path_mapping.yaml.md](default-registry/path_mapping.yaml.md)
 
-```text
-src/main.ts
-  -> OpenClawView
-  -> React UI in src/view.tsx and src/ui/*
-  -> WorkflowExecutor
-       -> registry workflow resolution
-       -> OpenClawClient WebSocket calls
-       -> local raw extractors
-       -> SchemaGuard / validateNote
-       -> ToolManager writeback
-```
+This gives open-source users a working baseline while still letting advanced
+users replace the registries with their own.
 
-Important modules:
+## Development
 
-| Path | Role |
-| --- | --- |
-| `src/workflows/WorkflowExecutor.ts` | Executes workflow actions and writeback |
-| `src/openclaw/OpenClawClient.ts` | WebSocket client and device auth |
-| `src/schema/SchemaGuard.ts` | Frontmatter repair and schema inference |
-| `src/localScripts/rawExtractors.ts` | WeChat/PDF/MarkItDown script bridge and PDF section splitter |
-| `src/linking/NoteLinkOrganizer.ts` | Related-note link organization |
-| `src/registry/frontmatterDateRules.ts` | `date` / `created` normalization rules |
-| `src/ui/*` | React UI components |
-
-## Repository Hygiene
-
-Do not commit local runtime files:
-
-- `data.json`
-- `.hotreload`
-- `.tmp-tests/`
-- `.DS_Store`
-- `node_modules/`
-
-Before pushing, run:
+Commands:
 
 ```bash
+npm run dev
 npm run build
-git status --short
+npm run typecheck
+npm test
 ```
 
-If credentials ever appear in git history, rewrite the history and rotate the
-affected credentials.
+Build output:
+
+- `main.js`
+- `styles.css`
+- `manifest.json`
+
+## Repository Notes
+
+Do not commit runtime secrets such as:
+
+- `data.json`
+- node tokens
+- device tokens
+- private keys
+- personal script paths
+
+The example settings file is `data.example.json`.
 
 ## License
 
-Private project. No public license is currently granted.
+This local draft now includes an MIT license. Change it before publishing if
+you want different terms.

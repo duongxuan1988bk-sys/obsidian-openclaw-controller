@@ -4,7 +4,6 @@
  * Middle scrollable area of the OpenClaw side panel.
  * Renders:
  * - All conversation turns (visibleTurns — system turns filtered)
- * - TopicPicker card (shown when theory/case topic selection is in progress)
  * - PermissionRequest card (shown when an action requires approval)
  * - Stream indicator (live streaming assistant message)
  *
@@ -17,10 +16,7 @@ import type { App as ObsidianApp } from "obsidian";
 import type { ChatTurn } from "../types";
 import { ChatMessage } from "./components/ChatMessage";
 import { PermissionRequest, type PermissionRequestModel } from "./components/PermissionRequest";
-import { TopicPicker, THEORY_TOPIC_OPTIONS, CASE_TOPIC_OPTIONS, METHOD_TOPIC_OPTIONS, type TopicOption } from "./components/TopicPicker";
-import { DomainPicker, INSIGHT_DOMAIN_OPTIONS, type InsightDomainOption } from "./components/DomainPicker";
 import type OpenClawControllerPlugin from "../main";
-import type { RawDomain, RegistryTopic, TopicPickerState } from "./pickerTypes";
 
 // ---------------------------------------------------------------------------
 // ChatPanel
@@ -39,11 +35,8 @@ type Props = {
   turns: ChatTurn[];
   stream: StreamState;
   pendingAction: PermissionRequestModel | null;
-  topicPicker: TopicPickerState;
   onRemoveTurn: (turnId: string) => void;
   onRetryTurn: (turn: ChatTurn) => void;
-  onCompleteTopicSelection: (topic: RegistryTopic | null) => void;
-  onCompleteInsightDomainSelection: (domain: RawDomain | null) => void;
   onRespondAction: (id: string, approved: boolean) => void;
 };
 
@@ -53,11 +46,8 @@ export function ChatPanel({
   visibleTurns,
   stream,
   pendingAction,
-  topicPicker,
   onRemoveTurn,
   onRetryTurn,
-  onCompleteTopicSelection,
-  onCompleteInsightDomainSelection,
   onRespondAction,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -79,47 +69,6 @@ export function ChatPanel({
           onRetry={(turn) => void onRetryTurn(turn)}
         />
       ))}
-
-      {topicPicker ? (
-        topicPicker.kind === "theory" ? (
-          <TopicPicker
-            title="Convert to Theory"
-            options={THEORY_TOPIC_OPTIONS}
-            onPick={(topic) => onCompleteTopicSelection(topic)}
-            onCancel={() => onCompleteTopicSelection(null)}
-          />
-        ) : topicPicker.kind === "case" ? (
-          <TopicPicker
-            title="Convert to Case"
-            options={CASE_TOPIC_OPTIONS}
-            onPick={(topic) => onCompleteTopicSelection(topic)}
-            onCancel={() => onCompleteTopicSelection(null)}
-          />
-        ) : topicPicker.kind === "method" ? (
-          <TopicPicker
-            title="Convert to Method"
-            options={METHOD_TOPIC_OPTIONS}
-            onPick={(topic) => onCompleteTopicSelection(topic)}
-            onCancel={() => onCompleteTopicSelection(null)}
-          />
-        ) : (
-          <DomainPicker
-            title={
-              topicPicker.kind === "insight" ? "Convert to Insight" :
-              topicPicker.kind === "raw" ? "Convert to Raw" :
-              topicPicker.kind === "markitdown" ? "Convert MarkItDown to Raw" :
-              topicPicker.kind === "doc" ? "Convert to Doc" :
-              topicPicker.kind === "debug" ? "Convert to Debug" :
-              topicPicker.kind === "system" ? "Convert to System" :
-              topicPicker.kind === "case_by_domain" ? "Convert to Case" :
-              "Select Domain"
-            }
-            options={INSIGHT_DOMAIN_OPTIONS}
-            onPick={(domain) => onCompleteInsightDomainSelection(domain)}
-            onCancel={() => onCompleteInsightDomainSelection(null)}
-          />
-        )
-      ) : null}
 
       {pendingAction ? (
         <PermissionRequest

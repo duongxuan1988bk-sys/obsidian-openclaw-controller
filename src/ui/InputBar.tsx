@@ -16,7 +16,7 @@
  */
 
 import React, { useRef } from "react";
-import { FileSearch, Plus, Settings2, Clock3, Send, Sparkles, Cpu, X, Languages } from "lucide-react";
+import { FileSearch, Plus, Settings2, Clock3, Send, Sparkles, Cpu, X } from "lucide-react";
 import type { App as ObsidianApp, TAbstractFile, TFile } from "obsidian";
 import { PickerPopover, type PickerItem } from "./components/PickerPopover";
 import { WorkflowPicker } from "./WorkflowPicker";
@@ -58,21 +58,12 @@ type Props = {
   onQuickActionChange: (v: string) => void;
 
   // Conversion callbacks (wired to WorkflowPicker)
-  onConvertToInsight: () => void;
-  onConvertToTheory: () => void;
-  onConvertToCase: () => void;
-  onConvertToMethod: () => void;
-  onConvertToDoc: () => void;
-  onConvertToDebug: () => void;
-  onConvertToSystem: () => void;
   onConvertToRaw: () => void;
   onConvertToPdf: () => void;
   onConvertToMarkItDown: () => void;
   onOrganizeLinks: () => void;
   onRewriteNote: () => void;
   onFixSchema: () => void;
-  onTranslateNote: () => void;
-  onGenerateImage: () => void;
 
   // Model display
   currentModelName: string;
@@ -109,21 +100,12 @@ export function InputBar({
   onRemoveReference,
   quickAction,
   onQuickActionChange,
-  onConvertToInsight,
-  onConvertToTheory,
-  onConvertToCase,
-  onConvertToMethod,
-  onConvertToDoc,
-  onConvertToDebug,
-  onConvertToSystem,
   onConvertToRaw,
   onConvertToPdf,
   onConvertToMarkItDown,
   onOrganizeLinks,
   onRewriteNote,
   onFixSchema,
-  onTranslateNote,
-  onGenerateImage,
   currentModelName,
   visibleTurns,
   vaultRevision,
@@ -215,38 +197,13 @@ export function InputBar({
             <WorkflowPicker
               value={quickAction}
               onChange={onQuickActionChange}
-              onConvertToInsight={onConvertToInsight}
-              onConvertToTheory={onConvertToTheory}
-              onConvertToCase={onConvertToCase}
-              onConvertToMethod={onConvertToMethod}
-              onConvertToDoc={onConvertToDoc}
-              onConvertToDebug={onConvertToDebug}
-              onConvertToSystem={onConvertToSystem}
               onConvertToRaw={onConvertToRaw}
               onConvertToPdf={onConvertToPdf}
               onConvertToMarkItDown={onConvertToMarkItDown}
               onOrganizeLinks={onOrganizeLinks}
               onRewriteNote={onRewriteNote}
               onFixSchema={onFixSchema}
-              onTranslateNote={onTranslateNote}
-              onGenerateImage={onGenerateImage}
             />
-            <button
-              className="oc-glass-icon-btn"
-              type="button"
-              onClick={() => onGenerateImage()}
-              title="Generate image for current note"
-            >
-              <Sparkles size={14} />
-            </button>
-            <button
-              className="oc-glass-icon-btn"
-              type="button"
-              onClick={() => onTranslateNote()}
-              title="Translate note (English → Chinese)"
-            >
-              <Languages size={14} />
-            </button>
             <button
               ref={filesBtnRef}
               className="oc-glass-text-btn"

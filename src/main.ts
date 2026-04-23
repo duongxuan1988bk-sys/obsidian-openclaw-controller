@@ -14,15 +14,11 @@ import { loadLocalOpenClawCatalog } from "./openclaw/localConfig";
 // Each entry maps to one listener set and one notice message.
 // ---------------------------------------------------------------------------
 export type ConversionType =
-  | "insight"
-  | "theory"
-  | "case"
   | "raw"
   | "markItDown"
   | "organizeLinks"
   | "rewrite"
-  | "fixFrontmatter"
-  | "translation";
+  | "fixFrontmatter";
 
 export default class OpenClawControllerPlugin extends Plugin {
   settings: OpenClawSettings = DEFAULT_SETTINGS;
@@ -39,17 +35,12 @@ export default class OpenClawControllerPlugin extends Plugin {
   // Conversion listeners — one set per ConversionType
   // Kept as named private fields (no string-reflection) for type safety.
   // -----------------------------------------------------------------------
-  private convertToInsightListeners = new Set<() => void | Promise<void>>();
-  private convertToTheoryListeners = new Set<() => void | Promise<void>>();
-  private convertToCaseListeners = new Set<() => void | Promise<void>>();
   private convertToRawListeners = new Set<() => void | Promise<void>>();
   private convertToPdfListeners = new Set<() => void | Promise<void>>();
   private convertToMarkItDownListeners = new Set<() => void | Promise<void>>();
   private organizeLinksListeners = new Set<() => void | Promise<void>>();
   private rewriteCurrentNoteListeners = new Set<() => void | Promise<void>>();
   private fixFrontmatterListeners = new Set<() => void | Promise<void>>();
-  private convertToTranslationListeners = new Set<() => void | Promise<void>>();
-  private generateImageListeners = new Set<() => void | Promise<void>>();
 
   // -----------------------------------------------------------------------
   // ConversionType → listener-set mapping
@@ -60,12 +51,6 @@ export default class OpenClawControllerPlugin extends Plugin {
   // -----------------------------------------------------------------------
   private getConversionListeners(type: ConversionType): Set<() => void | Promise<void>> {
     switch (type) {
-      case "insight":
-        return this.convertToInsightListeners;
-      case "theory":
-        return this.convertToTheoryListeners;
-      case "case":
-        return this.convertToCaseListeners;
       case "raw":
         return this.convertToRawListeners;
       case "markItDown":
@@ -76,8 +61,6 @@ export default class OpenClawControllerPlugin extends Plugin {
         return this.rewriteCurrentNoteListeners;
       case "fixFrontmatter":
         return this.fixFrontmatterListeners;
-      case "translation":
-        return this.convertToTranslationListeners;
     }
   }
 
@@ -86,12 +69,6 @@ export default class OpenClawControllerPlugin extends Plugin {
   // -----------------------------------------------------------------------
   private conversionNoticeMessage(type: ConversionType): string {
     switch (type) {
-      case "insight":
-        return "OpenClaw view is not ready yet. Please try Convert to Insight again.";
-      case "theory":
-        return "OpenClaw view is not ready yet. Please try Convert to Theory again.";
-      case "case":
-        return "OpenClaw view is not ready yet. Please try Convert to Case again.";
       case "raw":
         return "OpenClaw view is not ready yet. Please try Convert to Raw again.";
       case "markItDown":
@@ -102,8 +79,6 @@ export default class OpenClawControllerPlugin extends Plugin {
         return "OpenClaw view is not ready yet. Please try Rewrite Note again.";
       case "fixFrontmatter":
         return "OpenClaw view is not ready yet. Please try Fix Schema again.";
-      case "translation":
-        return "OpenClaw view is not ready yet. Please try Translate again.";
     }
   }
 
@@ -148,45 +123,6 @@ export default class OpenClawControllerPlugin extends Plugin {
       callback: async () => {
         if (!this.artifactsText.trim()) return;
         await this.tools.insertIntoActiveNote(this.artifactsText);
-      }
-    });
-
-    this.addCommand({
-      id: "convert-to-insight",
-      name: "OpenClaw: Convert current note to Insight",
-      checkCallback: (checking) => {
-        const activeFile = this.app.workspace.getActiveFile();
-        if (!activeFile || activeFile.extension !== "md") return false;
-        if (!checking) {
-          void this.requestConvertToInsight();
-        }
-        return true;
-      }
-    });
-
-    this.addCommand({
-      id: "convert-to-theory",
-      name: "OpenClaw: Convert current note to Theory",
-      checkCallback: (checking) => {
-        const activeFile = this.app.workspace.getActiveFile();
-        if (!activeFile || activeFile.extension !== "md") return false;
-        if (!checking) {
-          void this.requestConvertToTheory();
-        }
-        return true;
-      }
-    });
-
-    this.addCommand({
-      id: "convert-to-case",
-      name: "OpenClaw: Convert current note to Case",
-      checkCallback: (checking) => {
-        const activeFile = this.app.workspace.getActiveFile();
-        if (!activeFile || activeFile.extension !== "md") return false;
-        if (!checking) {
-          void this.requestConvertToCase();
-        }
-        return true;
       }
     });
 
@@ -260,32 +196,6 @@ export default class OpenClawControllerPlugin extends Plugin {
       }
     });
 
-    this.addCommand({
-      id: "translate-current-note",
-      name: "OpenClaw: Translate current note (English to Chinese)",
-      checkCallback: (checking) => {
-        const activeFile = this.app.workspace.getActiveFile();
-        if (!activeFile || activeFile.extension !== "md") return false;
-        if (!checking) {
-          void this.requestConvertToTranslation();
-        }
-        return true;
-      }
-    });
-
-    this.addCommand({
-      id: "generate-image-for-current-note",
-      name: "OpenClaw: Generate image for current note",
-      checkCallback: (checking) => {
-        const activeFile = this.app.workspace.getActiveFile();
-        if (!activeFile || activeFile.extension !== "md") return false;
-        if (!checking) {
-          void this.requestGenerateImage();
-        }
-        return true;
-      }
-    });
-
     this.addSettingTab(new OpenClawSettingTab(this));
   }
 
@@ -340,21 +250,6 @@ export default class OpenClawControllerPlugin extends Plugin {
     return () => this.settingsListeners.delete(cb);
   }
 
-  onConvertToInsightRequested(cb: () => void | Promise<void>): () => void {
-    this.convertToInsightListeners.add(cb);
-    return () => this.convertToInsightListeners.delete(cb);
-  }
-
-  onConvertToTheoryRequested(cb: () => void | Promise<void>): () => void {
-    this.convertToTheoryListeners.add(cb);
-    return () => this.convertToTheoryListeners.delete(cb);
-  }
-
-  onConvertToCaseRequested(cb: () => void | Promise<void>): () => void {
-    this.convertToCaseListeners.add(cb);
-    return () => this.convertToCaseListeners.delete(cb);
-  }
-
   onConvertToRawRequested(cb: () => void | Promise<void>): () => void {
     this.convertToRawListeners.add(cb);
     return () => this.convertToRawListeners.delete(cb);
@@ -385,34 +280,12 @@ export default class OpenClawControllerPlugin extends Plugin {
     return () => this.fixFrontmatterListeners.delete(cb);
   }
 
-  onConvertToTranslationRequested(cb: () => void | Promise<void>): () => void {
-    this.convertToTranslationListeners.add(cb);
-    return () => this.convertToTranslationListeners.delete(cb);
-  }
-
-  onGenerateImageRequested(cb: () => void | Promise<void>): () => void {
-    this.generateImageListeners.add(cb);
-    return () => this.generateImageListeners.delete(cb);
-  }
-
   // ---------------------------------------------------------------------------
   // Private requestConvertToXxx — now thin wrappers around requestConversion(type).
   //
   // Preserved for backwards compatibility with any external callers.
   // All execution logic lives in requestConversion(type) above.
   // ---------------------------------------------------------------------------
-  private async requestConvertToInsight() {
-    await this.requestConversion("insight");
-  }
-
-  private async requestConvertToTheory() {
-    await this.requestConversion("theory");
-  }
-
-  private async requestConvertToCase() {
-    await this.requestConversion("case");
-  }
-
   private async requestConvertToRaw() {
     await this.requestConversion("raw");
   }
@@ -437,21 +310,6 @@ export default class OpenClawControllerPlugin extends Plugin {
 
   private async requestFixFrontmatter() {
     await this.requestConversion("fixFrontmatter");
-  }
-
-  private async requestConvertToTranslation() {
-    await this.requestConversion("translation");
-  }
-
-  private async requestGenerateImage() {
-    await this.activateView();
-    if (this.generateImageListeners.size === 0) {
-      new Notice("OpenClaw panel is not ready yet. Please try again in a moment.");
-      return;
-    }
-    for (const cb of this.generateImageListeners) {
-      await cb();
-    }
   }
 
   async loadOpenClawCatalog(): Promise<OpenClawCatalog> {

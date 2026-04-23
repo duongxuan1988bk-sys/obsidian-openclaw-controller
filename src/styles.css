@@ -1077,10 +1077,9 @@
   font-weight: 500;
 }
 
-/* Claude-inspired warm editorial layer.
-   Claude.md currently points to the hosted design system, so this layer keeps the
-   existing plugin structure while shifting the surface language toward warm paper,
-   terracotta accents, soft borders, and quiet editorial controls. */
+/* Warm editorial skin for the side-panel UI.
+   This keeps the existing structure while shifting the surface language toward
+   warm paper, terracotta accents, soft borders, and quiet editorial controls. */
 .oc-shell {
   --oc-claude-bg: #f8f1e7;
   --oc-claude-bg-2: #f1e5d6;

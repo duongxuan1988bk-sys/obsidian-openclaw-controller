@@ -22,7 +22,7 @@ export class OpenClawSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "OpenClaw Controller" });
+    containerEl.createEl("h2", { text: "Obsidian to OpenClaw" });
 
     new Setting(containerEl)
       .setName("UI skin")

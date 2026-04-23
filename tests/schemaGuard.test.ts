@@ -48,27 +48,27 @@ OpenClaw architecture notes.
 assert.match(openclawTheory, /^domain: openclaw$/m, "OpenClaw theory keeps OpenClaw domain");
 assert.doesNotMatch(openclawTheory, /^topic:/m, "non-biotech theory does not keep biotech topic");
 
-const biotechTheory = ensureSchemaFrontmatter(
+const genericTheory = ensureSchemaFrontmatter(
   `---
-title: Biotech Theory
+title: Generic Theory
 tags: [theory]
 ---
 
-# Biotech Theory
+# Generic Theory
 
 ## Core Principle
 
-Biotech SEC notes.
+Reusable technical notes.
 `,
   {
     inferredType: "theory",
     theoryTopic: "SEC",
-    activeNotePath: "PARA/03Resources/03Domains/01Biotech/SEC/01Theory/Biotech Theory.md"
+    activeNotePath: "PARA/03Resources/02Insight/General/Generic Theory.md"
   }
 );
 
-assert.match(biotechTheory, /^domain: biotech$/m, "Biotech theory infers biotech domain");
-assert.match(biotechTheory, /^topic: SEC$/m, "Biotech theory keeps selected topic");
+assert.match(genericTheory, /^domain: general$/m, "Generic theory falls back to the general domain");
+assert.match(genericTheory, /^topic: SEC$/m, "Generic theory keeps the selected topic when provided");
 
 const createdFromDate = ensureSchemaFrontmatter(
   `---

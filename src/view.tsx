@@ -10,8 +10,6 @@ import { Clock3, Cpu, FileSearch, Palette, Plus, RefreshCw, Send, Settings2, Spa
 import type { OpenClawCatalogOption } from "./openclaw/localConfig";
 import { logError, logExecution } from "./monitoring/workflowLogs";
 import { validateNote } from "./validation";
-import { resolveWorkflowPlan, validatePlan, type PlannerWorkflowPlan } from "./planner";
-import type { RawDomain, RegistryTopic, TopicPickerState } from "./ui/pickerTypes";
 import { AgentStatusBar } from "./ui/AgentStatusBar";
 import { ChatPanel } from "./ui/ChatPanel";
 import { InputBar } from "./ui/InputBar";
@@ -24,9 +22,6 @@ import {
 import {
   WorkflowExecutor,
   frontmatterString,
-  type RegistryConvertKind,
-  type RunnableWorkflowName,
-  type WorkflowRunContext
 } from "./workflows/WorkflowExecutor";
 
 const DEFAULT_AGENT_ID = "Obsidian";
@@ -476,51 +471,6 @@ class RewriteFixConfirmModal extends Modal {
   }
 }
 
-class ConfirmActionModal extends Modal {
-  private settled = false;
-  private resolve: (confirmed: boolean) => void;
-
-  constructor(app: ObsidianApp, title: string, noteName: string, actionLabel: string, resolve: (confirmed: boolean) => void) {
-    super(app);
-    this.resolve = resolve;
-    this.title = title;
-    this.noteName = noteName;
-    this.actionLabel = actionLabel;
-  }
-
-  private title: string;
-  private noteName: string;
-  private actionLabel: string;
-
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.addClass("oc-url-modal");
-    contentEl.createEl("h2", { text: this.title });
-    contentEl.createEl("p", {
-      text: `${this.actionLabel} - ${this.noteName}\n\n确认要继续吗？`
-    });
-
-    const actions = contentEl.createDiv({ cls: "oc-url-modal-actions" });
-    const cancel = actions.createEl("button", { text: "取消" });
-    const confirm = actions.createEl("button", { text: "确认" });
-    confirm.addClass("mod-cta");
-    cancel.addEventListener("click", () => this.finish(false));
-    confirm.addEventListener("click", () => this.finish(true));
-  }
-
-  onClose() {
-    this.contentEl.empty();
-    if (!this.settled) this.resolve(false);
-  }
-
-  private finish(confirmed: boolean) {
-    this.settled = true;
-    this.resolve(confirmed);
-    this.close();
-  }
-}
-
 class LinkScanRangeModal extends Modal {
   private settled = false;
   private resolve: (days: LinkScanDays | null) => void;
@@ -784,29 +734,18 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   const agentModelMapRef = useRef<Record<string, string | undefined>>({});
   const sessionKeyRef = useRef(sessionKey);
   const pendingInsightRef = useRef<PendingInsightConversion | null>(null);
-  const topicSelectionResolverRef = useRef<((topic: RegistryTopic | null) => void) | null>(null);
-  const domainSelectionResolverRef = useRef<((domain: RawDomain | null) => void) | null>(null);
-  const [topicPicker, setTopicPicker] = useState<TopicPickerState>(null);
-  const [selectedDomain, setSelectedDomain] = useState<RawDomain | null>(null);
-  const convertToInsightRef = useRef<() => void>(() => {});
   const convertToRawRef = useRef<() => void>(() => {});
   const convertPdfRawRef = useRef<() => void>(() => {});
   const convertMarkItDownRawRef = useRef<() => void>(() => {});
   const organizeLinksRef = useRef<() => void>(() => {});
   const rewriteCurrentNoteRef = useRef<() => void>(() => {});
   const fixFrontmatterRef = useRef<() => void>(() => {});
-  const translateNoteRef = useRef<() => void>(() => {});
-  const generateImageRef = useRef<() => void>(() => {});
   const inputComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
 
   function currentModelName(): string {
     return model || agentModelMapRef.current[agent] || "";
   }
-
-  useEffect(() => {
-    return props.plugin.onConvertToInsightRequested(() => convertToInsightRef.current());
-  }, [props.plugin]);
 
   useEffect(() => {
     return props.plugin.onConvertToRawRequested(() => convertToRawRef.current());
@@ -830,14 +769,6 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
 
   useEffect(() => {
     return props.plugin.onFixFrontmatterRequested(() => fixFrontmatterRef.current());
-  }, [props.plugin]);
-
-  useEffect(() => {
-    return props.plugin.onConvertToTranslationRequested(() => translateNoteRef.current());
-  }, [props.plugin]);
-
-  useEffect(() => {
-    return props.plugin.onGenerateImageRequested(() => generateImageRef.current());
   }, [props.plugin]);
 
   useEffect(() => {
@@ -1281,27 +1212,6 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
       return;
     }
 
-    // Attempt natural-language workflow resolution first
-    const activeFile = props.app.workspace.getActiveFile();
-    const ctx = {
-      hasActiveFile: !!activeFile,
-      activeFileIsMarkdown: !!activeFile && activeFile.extension === "md",
-      isConnected: conn === "connected",
-    };
-    // v2: Read active note content for domain inference
-    const activeNoteContent = activeFile?.extension === "md"
-      ? await props.app.vault.cachedRead(activeFile).catch(() => "")
-      : "";
-    const planResult = resolveWorkflowPlan(content, ctx, activeNoteContent);
-    console.log("[Planner] input:", JSON.stringify(content), "planResult:", JSON.stringify(planResult), "ctx:", JSON.stringify(ctx));
-
-    if (planResult.valid) {
-      console.log("[Planner] VALID plan, routing to handlePlannedWorkflow, plan:", JSON.stringify(planResult.plan));
-      await handlePlannedWorkflow(planResult.plan, activeFile!);
-      return;
-    }
-
-    console.log("[Planner] invalid plan, falling through to normal chat send");
     setSending(true);
     const outgoingReferences = activeNoteReference
       ? [activeNoteReference, ...references.filter((reference) => reference.path !== activeNoteReference.path)]
@@ -1339,413 +1249,6 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
       setReferences([]);
       setSending(false);
     }
-  }
-
-  /**
-   * Route a validated planner result into the appropriate workflow.
-   * Called by sendUser when natural-language input resolves to a plan.
-   * Handles rewrite/fix directly; delegates insight/theory/case to
-   * convertCurrentNoteWithRegistry for its preflight and topic logic.
-   */
-  async function handlePlannedWorkflow(plan: PlannerWorkflowPlan, activeFile: TFile): Promise<void> {
-    const title = activeFile.basename;
-
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: uid(),
-        role: "user",
-        createdAt: Date.now(),
-        content: `(Planner) ${plan.workflow}`,
-        references: [{ kind: "file", path: activeFile.path, label: title }]
-      }
-    ]);
-    setSending(true);
-
-    try {
-      // Validate before use — throws if plan is invalid
-      validatePlan(plan, {
-        hasActiveFile: !!activeFile,
-        activeFileIsMarkdown: activeFile.extension === "md",
-        isConnected: conn === "connected",
-      });
-
-      if (plan.workflow === "rewrite_current_note") {
-        const shouldFix = await confirmFixSchemaAfterRewrite();
-        await createWorkflowExecutor().executeRewriteCurrentNote({
-          activeFile,
-          shouldFixAfterRewrite: shouldFix
-        });
-        new Notice(`Rewrite complete: ${activeFile.path}`);
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Planner: rewrite complete for ${activeFile.path}` }
-        ]);
-        return;
-      }
-
-      if (plan.workflow === "fix_frontmatter") {
-        await createWorkflowExecutor().executeFixCurrentSchema({ activeFile });
-        new Notice(`Fix Schema complete: ${activeFile.path}`);
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Planner: fix schema complete for ${activeFile.path}` }
-        ]);
-        return;
-      }
-
-      // Insight / Theory / Case — delegate to existing function for preflight + topic selection
-      // v2: For raw_to_insight with high-confidence inferred domain (needsDomainSelection=false), skip picker
-      //     For medium-confidence (needsDomainSelection=true), domain is suggested before picker shown
-      setSending(false);
-      // openclaw/ai theory: preselect domain, skip topic picker (biotech theory needs topic picker)
-      const preselectedDomain = (plan.workflow === "raw_to_insight" && plan.domain && !plan.needsDomainSelection)
-        ? plan.domain
-        : plan.workflow === "note_to_theory" && plan.domain && plan.domain !== "biotech"
-          ? plan.domain
-          : undefined;
-      // v2: Medium confidence = suggested domain shown before picker for confirmation
-      const suggestedDomain = (plan.workflow === "raw_to_insight" && plan.domain && plan.needsDomainSelection)
-        ? plan.domain
-        : undefined;
-      await convertCurrentNoteWithRegistry(
-        plan.workflow === "raw_to_insight" ? "insight" :
-        plan.workflow === "note_to_theory" ? "theory" :
-        plan.workflow === "note_to_method" ? "method" :
-        plan.workflow === "note_to_case_by_domain" ? "case_by_domain" : "case",
-        preselectedDomain,
-        suggestedDomain
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.log("[handlePlannedWorkflow] error:", message);
-      new Notice(`Planner workflow failed: ${message}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Planner workflow failed**: ${message}` }
-      ]);
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function convertCurrentNoteWithRegistry(
-    kind: RegistryConvertKind,
-    preselectedDomain?: "biotech" | "openclaw" | "ai" | "general",
-    suggestedDomain?: "biotech" | "openclaw" | "ai" | "general",
-    preselectedTopic?: RegistryTopic
-  ) {
-    const label = kind === "theory" ? "Theory" : kind === "case" ? "Case" : kind === "method" ? "Method" : kind === "doc" ? "Doc" : kind === "debug" ? "Debug" : kind === "system" ? "System" : kind === "case_by_domain" ? "Case" : "Insight";
-    const action = `convert_to_${kind}`;
-    const startedAt = Date.now();
-    let step = "preflight";
-    const workflowName: RunnableWorkflowName =
-      kind === "theory" ? "note_to_theory" :
-      kind === "case" ? "note_to_case" :
-      kind === "method" ? "note_to_method" :
-      kind === "doc" ? "note_to_doc" :
-      kind === "debug" ? "note_to_debug" :
-      kind === "system" ? "note_to_system" :
-      kind === "case_by_domain" ? "note_to_case_by_domain" :
-      "raw_to_insight";
-    const activeFile = props.app.workspace.getActiveFile();
-    if (!activeFile) {
-      new Notice(`Convert to ${label} failed: no active note.`);
-      setTurns((prev) => [...prev, { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to ${label} failed**: no active note.` }]);
-      await logError(props.app, {
-        action,
-        workflow: workflowName,
-        sourceNote: "",
-        step,
-        errorType: "PreflightError",
-        message: "no active note",
-        durationMs: Date.now() - startedAt
-      });
-      return;
-    }
-    if (activeFile.extension !== "md") {
-      new Notice(`Convert to ${label} only supports Markdown notes.`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to ${label} failed**: ${activeFile.path} is not a Markdown note.` }
-      ]);
-      await logError(props.app, {
-        action,
-        workflow: workflowName,
-        sourceNote: activeFile.path,
-        step,
-        errorType: "PreflightError",
-        message: `${activeFile.path} is not a Markdown note.`,
-        durationMs: Date.now() - startedAt
-      });
-      return;
-    }
-    if (conn !== "connected") {
-      new Notice(`Convert to ${label} failed: OpenClaw is not connected.`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to ${label} failed**: OpenClaw is not connected.` }
-      ]);
-      await logError(props.app, {
-        action,
-        workflow: workflowName,
-        sourceNote: activeFile.path,
-        step,
-        errorType: "ConnectionError",
-        message: "OpenClaw is not connected.",
-        durationMs: Date.now() - startedAt
-      });
-      return;
-    }
-    let topic: RegistryTopic | undefined;
-    let domain: "biotech" | "openclaw" | "ai" | "general" | undefined;
-    if (kind === "theory") {
-      // Domain-based theory (openclaw/ai): use domain directly, skip topic picker
-      if (preselectedDomain && (preselectedDomain === "openclaw" || preselectedDomain === "ai")) {
-        domain = preselectedDomain;
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label} (${domain}): ${title}` }
-        ]);
-      } else if (preselectedTopic) {
-        // Biotech theory with preselected topic (domain-first flow)
-        topic = preselectedTopic;
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label} (${preselectedDomain}): ${title}` }
-        ]);
-      } else {
-        // Topic-based theory (biotech): show topic picker
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label}: waiting for topic selection…` }
-        ]);
-        const selectedTopic = await chooseTopic(kind);
-        if (!selectedTopic) {
-          setTurns((prev) => [
-            ...prev,
-            { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label} cancelled: no topic selected.` }
-          ]);
-          return;
-        }
-        topic = selectedTopic;
-      }
-    } else if (kind === "case") {
-      // Biotech case: needs topic picker; openclaw/ai case: skip topic picker
-      if (preselectedDomain && (preselectedDomain === "openclaw" || preselectedDomain === "ai")) {
-        domain = preselectedDomain;
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label} (${domain}): ${title}` }
-        ]);
-      } else if (preselectedTopic) {
-        topic = preselectedTopic;
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label} (${preselectedDomain}): ${title}` }
-        ]);
-      } else {
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label}: waiting for topic selection…` }
-        ]);
-        const selectedTopic = await chooseTopic(kind);
-        if (!selectedTopic) {
-          setTurns((prev) => [
-            ...prev,
-            { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label} cancelled: no topic selected.` }
-          ]);
-          return;
-        }
-        topic = selectedTopic;
-      }
-    } else if (kind === "method") {
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label}: waiting for topic selection…` }
-      ]);
-      const selectedTopic = await chooseTopic(kind);
-      if (!selectedTopic) {
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label} cancelled: no topic selected.` }
-        ]);
-        return;
-      }
-      topic = selectedTopic;
-      domain = "biotech";
-    } else if (kind === "case_by_domain") {
-      // openclaw/ai case: domain already set, no topic picker needed
-      if (preselectedDomain) {
-        domain = preselectedDomain;
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to Case (${domain}): ${title}` }
-        ]);
-      }
-    } else if (kind === "insight") {
-      // v2: If domain was preselected by planner (high-confidence inference), use it directly
-      if (preselectedDomain) {
-        domain = preselectedDomain;
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to Insight (${domain}): ${title}` }
-        ]);
-      } else if (suggestedDomain) {
-        // v2: Medium confidence = suggested domain shown before picker for confirmation
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to Insight: suggested domain is "${suggestedDomain}" — please confirm or choose another…` }
-        ]);
-        const selectedDomain = await chooseDomain();
-        if (!selectedDomain) {
-          setTurns((prev) => [
-            ...prev,
-            { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to Insight cancelled: no domain selected.` }
-          ]);
-          return;
-        }
-        domain = selectedDomain;
-      } else {
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to Insight: waiting for domain selection…` }
-        ]);
-        const selectedDomain = await chooseDomain();
-        if (!selectedDomain) {
-          setTurns((prev) => [
-            ...prev,
-            { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to Insight cancelled: no domain selected.` }
-          ]);
-          return;
-        }
-        domain = selectedDomain;
-      }
-    } else if (kind === "doc" || kind === "debug" || kind === "system" || kind === "case_by_domain") {
-      // doc/debug/system/case_by_domain always require domain selection
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label}: waiting for domain selection…` }
-      ]);
-      const selectedDomain = await chooseDomain();
-      if (!selectedDomain) {
-        setTurns((prev) => [
-          ...prev,
-          { id: uid(), role: "system", createdAt: Date.now(), content: `Convert to ${label} cancelled: no domain selected.` }
-        ]);
-        return;
-      }
-      domain = selectedDomain;
-    }
-
-    setSending(true);
-    const title = activeFile.basename;
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: uid(),
-        role: "user",
-        createdAt: Date.now(),
-        content: topic ? `Convert to ${label} (${topic}): ${title}` : `Convert to ${label}: ${title}`,
-        references: [{ kind: "file", path: activeFile.path, label: title }]
-      }
-    ]);
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: uid(),
-        role: "system",
-        createdAt: Date.now(),
-        content: topic
-          ? `Convert to ${label} started. Topic: ${topic}. Reading note and registry…`
-          : `Convert to ${label} started. Reading note and registry…`
-      }
-    ]);
-
-    try {
-      const { created } = await createWorkflowExecutor().executeRegistryConversion({
-        kind,
-        activeFile,
-        topic,
-        domain,
-        startedAt
-      });
-      new Notice(`${label} created: ${created.path}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `${label} created: ${created.path}` }
-      ]);
-    } catch (error) {
-      const message = errorMessage(error);
-      new Notice(`Convert to ${label} failed: ${message}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Convert to ${label} failed**: ${message}` }
-      ]);
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function convertCurrentNoteToInsight() {
-    await convertCurrentNoteWithRegistry("insight");
-  }
-
-  /**
-   * Domain-first conversion flow for Theory.
-   * Always shows domain picker first (biotech/openclaw/ai/general).
-   * - biotech → then shows topic picker → note_to_theory with topic
-   * - openclaw/ai → note_to_theory with domain (no topic picker)
-   */
-  async function convertCurrentNoteToTheory() {
-    const domain = await chooseDomain();
-    if (!domain) return;
-    if (domain === "biotech") {
-      await convertCurrentNoteWithRegistry("theory", "biotech", undefined, undefined);
-    } else {
-      await convertCurrentNoteWithRegistry("theory", domain, undefined, undefined);
-    }
-  }
-
-  /**
-   * Domain-first conversion flow for Case.
-   * Always shows domain picker first.
-   * - biotech → then shows topic picker → note_to_case with topic
-   * - openclaw/ai → note_to_case_by_domain with domain (no topic picker)
-   */
-  async function convertCurrentNoteToCase() {
-    const domain = await chooseDomain();
-    if (!domain) return;
-    if (domain === "biotech") {
-      await convertCurrentNoteWithRegistry("case", "biotech");
-    } else {
-      await convertCurrentNoteWithRegistry("case_by_domain", domain);
-    }
-  }
-
-  async function convertCurrentNoteToMethod() {
-    await convertCurrentNoteWithRegistry("method", "biotech");
-  }
-
-  /**
-   * Convert to Doc — always requires domain selection (openclaw/ai only).
-   */
-  async function convertCurrentNoteToDoc() {
-    await convertCurrentNoteWithRegistry("doc");
-  }
-
-  /**
-   * Convert to Debug — always requires domain selection (openclaw/ai only).
-   */
-  async function convertCurrentNoteToDebug() {
-    await convertCurrentNoteWithRegistry("debug");
-  }
-
-  /**
-   * Convert to System — always requires domain selection (openclaw/ai only).
-   */
-  async function convertCurrentNoteToSystem() {
-    await convertCurrentNoteWithRegistry("system");
   }
 
   function appendTurn(turn: ChatTurn) {
@@ -1806,11 +1309,6 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     }
   }
 
-  /**
-   * Convert to Raw — domain-aware.
-   * - biotech: shows WeChat URL modal and uses wechat-to-obsidian skill
-   * - openclaw/ai/general: shows generic content modal and creates a raw note directly
-   */
   async function convertToRaw() {
     const startedAt = Date.now();
 
@@ -1819,18 +1317,7 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
       return;
     }
 
-    appendSystemTurn("Convert to Raw: waiting for domain selection…");
-    const selectedDomain = await chooseDomainForRaw();
-    if (!selectedDomain) {
-      appendSystemTurn("Convert to Raw cancelled: no domain selected.");
-      return;
-    }
-
-    if (selectedDomain === "biotech") {
-      await convertBiotechRaw(startedAt);
-    } else {
-      await convertGenericRaw(selectedDomain, startedAt);
-    }
+    await convertBiotechRaw(startedAt);
   }
 
   /**
@@ -1929,12 +1416,7 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
       return;
     }
 
-    appendSystemTurn("Convert to MarkItDown Raw: waiting for domain selection…");
-    const domain = await chooseDomainForMarkItDownRaw();
-    if (!domain) {
-      appendSystemTurn("Convert to MarkItDown Raw cancelled: no domain selected.");
-      return;
-    }
+    const domain = "general" as const;
 
     const inputPath = await promptForMarkItDownPath();
     if (!inputPath) {
@@ -1944,9 +1426,9 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
 
     const file = props.app.vault.getAbstractFileByPath(inputPath) as TFile | null;
     const title = file?.basename ?? inputPath.split("/").pop() ?? "MarkItDown Note";
-    appendUserTurn(`Convert to Raw (MarkItDown/${domain}): ${title}`);
+    appendUserTurn(`Convert to Raw (MarkItDown): ${title}`);
     await withRawExecution({
-      startMessage: `Extracting content via MarkItDown for ${domain}…`,
+      startMessage: "Extracting content via MarkItDown…",
       successNotice: (path) => `MarkItDown Raw created: ${path}`,
       successMessage: (path) => `MarkItDown Raw created: ${path}`,
       failureNotice: (message) => `Convert to MarkItDown Raw failed: ${message}`,
@@ -2155,117 +1637,9 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     }
   }
 
-  async function generateImageForCurrentNote() {
-    const action = "generate_image";
-    const startedAt = Date.now();
-    let step = "preflight";
-    if (conn !== "connected") {
-      new Notice("Generate Image failed: OpenClaw is not connected.");
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Generate Image failed**: OpenClaw is not connected.` }
-      ]);
-      await logError(props.app, {
-        action,
-        workflow: "generate_image",
-        sourceNote: "",
-        step,
-        errorType: "ConnectionError",
-        message: "OpenClaw is not connected.",
-        durationMs: Date.now() - startedAt
-      });
-      return;
-    }
-
-    const activeFile = props.app.workspace.getActiveFile();
-    if (!activeFile || activeFile.extension !== "md") {
-      new Notice("Generate Image failed: No markdown note is open.");
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Generate Image failed**: No markdown note is open.` }
-      ]);
-      await logError(props.app, {
-        action,
-        workflow: "generate_image",
-        sourceNote: activeFile?.path ?? "",
-        step,
-        errorType: "PreflightError",
-        message: "No markdown note is open.",
-        durationMs: Date.now() - startedAt
-      });
-      return;
-    }
-
-    const title = activeFile.basename || activeFile.name.replace(/\.md$/i, "");
-
-    const confirmed = await confirmAction("生成配图", title, "生成配图");
-    if (!confirmed) {
-      new Notice("生成配图已取消");
-      return;
-    }
-
-    setSending(true);
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: uid(),
-        role: "user",
-        createdAt: Date.now(),
-        content: `Generate Image: ${title}`,
-        references: [{ kind: "file", path: activeFile.path, label: title }]
-      },
-      {
-        id: uid(),
-        role: "system",
-        createdAt: Date.now(),
-        content: "Generate Image started. Sending note to LLM for prompt…"
-      }
-    ]);
-    console.log("[GenerateImage] start", { path: activeFile.path });
-
-    try {
-      const result = await createWorkflowExecutor().executeImageGeneration({
-        activeFile,
-        startedAt
-      });
-      new Notice(`Generate Image complete: ${result.imageRelativePath}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `Generate Image complete: ${result.imageRelativePath}` }
-      ]);
-      console.log("[GenerateImage] done", { path: result.imagePath });
-    } catch (error) {
-      const message = errorMessage(error);
-      new Notice(`Generate Image failed: ${message}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Generate Image failed**: ${message}` }
-      ]);
-      console.error("[GenerateImage] failed", error);
-    } finally {
-      setSending(false);
-    }
-  }
-
   function promptForWeChatUrl(): Promise<string | null> {
     return new Promise((resolve) => {
       new WeChatUrlModal(props.app, resolve).open();
-    });
-  }
-
-  function chooseDomainForRaw(): Promise<RawDomain | null> {
-    domainSelectionResolverRef.current?.(null);
-    setTopicPicker({ kind: "raw" });
-    return new Promise((resolve) => {
-      domainSelectionResolverRef.current = resolve;
-    });
-  }
-
-  function chooseDomainForMarkItDownRaw(): Promise<RawDomain | null> {
-    domainSelectionResolverRef.current?.(null);
-    setTopicPicker({ kind: "markitdown" });
-    return new Promise((resolve) => {
-      domainSelectionResolverRef.current = resolve;
     });
   }
 
@@ -2287,50 +1661,10 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     });
   }
 
-  function chooseTopic(kind: "theory" | "case" | "method"): Promise<RegistryTopic | null> {
-    topicSelectionResolverRef.current?.(null);
-    setTopicPicker({ kind });
-    return new Promise((resolve) => {
-      topicSelectionResolverRef.current = resolve;
-    });
-  }
-
-  function completeTopicSelection(topic: RegistryTopic | null) {
-    const resolve = topicSelectionResolverRef.current;
-    topicSelectionResolverRef.current = null;
-    setTopicPicker(null);
-    resolve?.(topic);
-  }
-
-  async function sendConvert(kind: RegistryConvertKind) {
-    await convertCurrentNoteWithRegistry(kind);
-  }
-
   function confirmFixSchemaAfterRewrite(): Promise<boolean> {
     return new Promise((resolve) => {
       new RewriteFixConfirmModal(props.app, resolve).open();
     });
-  }
-
-  function confirmAction(title: string, noteName: string, actionLabel: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      new ConfirmActionModal(props.app, title, noteName, actionLabel, resolve).open();
-    });
-  }
-
-  function chooseDomain(): Promise<RawDomain | null> {
-    domainSelectionResolverRef.current?.(null);
-    setTopicPicker({ kind: "insight" });
-    return new Promise((resolve) => {
-      domainSelectionResolverRef.current = resolve;
-    });
-  }
-
-  function completeDomainSelection(domain: RawDomain | null) {
-    const resolve = domainSelectionResolverRef.current;
-    domainSelectionResolverRef.current = null;
-    setTopicPicker(null);
-    resolve?.(domain);
   }
 
   function createWorkflowExecutor(): WorkflowExecutor {
@@ -2350,11 +1684,6 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
         ]);
       }
     });
-  }
-
-  async function runWorkflow(workflowName: RunnableWorkflowName, inputMarkdown: string, context: WorkflowRunContext): Promise<string> {
-    const executor = createWorkflowExecutor();
-    return await executor.runWorkflow(workflowName, inputMarkdown, context);
   }
 
   async function fixCurrentSchema() {
@@ -2432,97 +1761,6 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
       new Notice(`Fix Schema failed: ${message}`);
       setTurns((prev) => [...prev, { id: uid(), role: "system", createdAt: Date.now(), content: `**Fix Schema failed**: ${message}` }]);
       console.error("[OpenClaw] fix_frontmatter failed", error);
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function translateCurrentNote() {
-    const action = "translate_note";
-    const workflowName = "raw_to_translated";
-    const startedAt = Date.now();
-    let step = "preflight";
-
-    if (conn !== "connected") {
-      new Notice("Translate failed: OpenClaw is not connected.");
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Translate failed**: OpenClaw is not connected.` }
-      ]);
-      await logError(props.app, {
-        action,
-        workflow: workflowName,
-        sourceNote: "",
-        step,
-        errorType: "ConnectionError",
-        message: "OpenClaw is not connected.",
-        durationMs: Date.now() - startedAt
-      });
-      return;
-    }
-
-    const activeFile = props.app.workspace.getActiveFile();
-    if (!activeFile || activeFile.extension !== "md") {
-      new Notice("Translate failed: No markdown note is open.");
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Translate failed**: No markdown note is open.` }
-      ]);
-      await logError(props.app, {
-        action,
-        workflow: workflowName,
-        sourceNote: activeFile?.path ?? "",
-        step,
-        errorType: "PreflightError",
-        message: "No markdown note is open.",
-        durationMs: Date.now() - startedAt
-      });
-      return;
-    }
-
-    const title = activeFile.basename || activeFile.name.replace(/\.md$/i, "");
-
-    const confirmed = await confirmAction("翻译笔记", title, "翻译");
-    if (!confirmed) {
-      new Notice("翻译已取消");
-      return;
-    }
-
-    setSending(true);
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: uid(),
-        role: "user",
-        createdAt: Date.now(),
-        content: `Translate to Chinese: ${title}`,
-        references: [{ kind: "file", path: activeFile.path, label: title }]
-      },
-      {
-        id: uid(),
-        role: "system",
-        createdAt: Date.now(),
-        content: "Translation started. Reading note and translating to Chinese…"
-      }
-    ]);
-    console.log("[OpenClaw] translate started", { path: activeFile.path });
-
-    try {
-      const { created } = await createWorkflowExecutor().executeTranslation({ activeFile, startedAt });
-      new Notice(`Translation created: ${created.path}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `Translation created: ${created.path}` }
-      ]);
-      console.log("[OpenClaw] translate completed", { path: created.path });
-    } catch (error) {
-      const message = errorMessage(error);
-      new Notice(`Translate failed: ${message}`);
-      setTurns((prev) => [
-        ...prev,
-        { id: uid(), role: "system", createdAt: Date.now(), content: `**Translate failed**: ${message}` }
-      ]);
-      console.error("[OpenClaw] translate failed", error);
     } finally {
       setSending(false);
     }
@@ -2628,9 +1866,6 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     }
   }
 
-  convertToInsightRef.current = () => {
-    void convertCurrentNoteToInsight();
-  };
   convertToRawRef.current = () => {
     void convertToRaw();
   };
@@ -2648,12 +1883,6 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   };
   fixFrontmatterRef.current = () => {
     void fixCurrentSchema();
-  };
-  translateNoteRef.current = () => {
-    void translateCurrentNote();
-  };
-  generateImageRef.current = () => {
-    void generateImageForCurrentNote();
   };
 
   async function cycleUiSkin() {
@@ -2687,11 +1916,8 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
         turns={turns}
         stream={stream}
         pendingAction={pendingAction}
-        topicPicker={topicPicker}
         onRemoveTurn={removeTurn}
         onRetryTurn={(turn) => void retryTurn(turn)}
-        onCompleteTopicSelection={completeTopicSelection}
-        onCompleteInsightDomainSelection={completeDomainSelection}
         onRespondAction={respondAction}
       />
 
@@ -2710,21 +1936,12 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
         onRemoveReference={removeReference}
         quickAction={quickAction}
         onQuickActionChange={setQuickAction}
-        onConvertToInsight={convertCurrentNoteToInsight}
-        onConvertToTheory={convertCurrentNoteToTheory}
-        onConvertToCase={convertCurrentNoteToCase}
-        onConvertToMethod={convertCurrentNoteToMethod}
-        onConvertToDoc={convertCurrentNoteToDoc}
-        onConvertToDebug={convertCurrentNoteToDebug}
-        onConvertToSystem={convertCurrentNoteToSystem}
         onConvertToRaw={convertToRaw}
         onConvertToPdf={convertPdfRaw}
         onConvertToMarkItDown={convertMarkItDownRaw}
         onOrganizeLinks={organizeInsightLinks}
         onRewriteNote={rewriteCurrentNote}
         onFixSchema={fixCurrentSchema}
-        onTranslateNote={translateCurrentNote}
-        onGenerateImage={generateImageForCurrentNote}
         currentModelName={currentModelName()}
         visibleTurns={visibleTurns}
         vaultRevision={vaultRevision}

@@ -1,14 +1,24 @@
 {
-  "gatewayUrl": "ws://127.0.0.1:18789",
+  "gatewayUrl": "ws://127.0.0.1:18789/",
   "token": "",
   "sessionKey": "agent:Obsidian:main",
   "selectedAgentId": "Obsidian",
   "selectedModel": "",
-  "uiSkin": "apple",
+  "uiSkin": "claude",
   "clientId": "node-host",
   "clientMode": "node",
+  "deviceIdentity": null,
+  "deviceAuth": null,
   "paraInsightBase": "PARA/Resources",
   "paraTheoryBase": "PARA/Resources",
   "paraCaseBase": "PARA/Projects",
-  "paraMethodBase": "PARA/Methods"
+  "paraMethodBase": "PARA/Methods",
+  "wechatScriptPath": "",
+  "pdfScriptPath": "",
+  "markItDownPath": "markitdown",
+  "pythonPath": "python3",
+  "pdfPythonPath": "python3",
+  "wechatScriptTimeoutMs": 60000,
+  "pdfScriptTimeoutMs": 120000,
+  "markItDownTimeoutMs": 120000
 }

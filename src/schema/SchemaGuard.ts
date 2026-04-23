@@ -120,24 +120,10 @@ function removeListItems(fm: string, key: string, blocked: string[]): string {
   return setListKey(fm, key, kept);
 }
 
-function detectSecMetadata(body: string): { purity?: string; columnType?: string } {
-  const purityMatch =
-    body.match(/purity\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?%)/i) ??
-    body.match(/纯度\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?%)/i);
-  const columnMatch =
-    body.match(/column(?:\s+type)?\s*[:：]?\s*([^\n,，]+)/i) ??
-    body.match(/色谱柱(?:类型)?\s*[:：]?\s*([^\n,，]+)/i);
-  return {
-    purity: purityMatch?.[1]?.trim(),
-    columnType: columnMatch?.[1]?.trim()
-  };
-}
-
 function inferDomain(fm: string, path: string): string {
   const existing = readKey(fm, "domain").toLowerCase();
   if (existing) return existing;
   const normalizedPath = path.toLowerCase();
-  if (normalizedPath.includes("biotech")) return "biotech";
   if (normalizedPath.includes("openclaw")) return "openclaw";
   if (normalizedPath.includes("/ai/") || normalizedPath.includes("02ai")) return "ai";
   if (normalizedPath.includes("general")) return "general";
@@ -171,22 +157,17 @@ export function ensureSchemaFrontmatter(text: string, ctx: SchemaContext): strin
   }
 
   if (type === "case") {
-    const topic = ctx.theoryTopic?.trim();
     nextFm = upsertKey(nextFm, "type", "case");
     nextFm = upsertKey(nextFm, "status", "draft");
     nextFm = upsertKey(nextFm, "domain", domain);
-    nextFm = upsertKey(nextFm, "workflow", domain === "biotech" ? "note_to_case" : "note_to_case_by_domain");
-    if (domain === "biotech" && topic) nextFm = upsertKey(nextFm, "topic", topic);
-    if (domain !== "biotech") nextFm = removeKey(nextFm, "topic");
+    nextFm = upsertKey(nextFm, "workflow", "note_to_case");
+    if (ctx.theoryTopic?.trim()) nextFm = upsertKey(nextFm, "topic", ctx.theoryTopic.trim());
+    if (!ctx.theoryTopic?.trim()) nextFm = removeKey(nextFm, "topic");
     if (!hasKey(nextFm, "problem_type")) nextFm = upsertKey(nextFm, "problem_type", "unspecified");
     nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
     nextFm = ensureListKey(nextFm, "tags", "case");
     nextFm = ensureListKey(nextFm, "tags", domain);
-    if (domain === "biotech" && topic) nextFm = ensureListKey(nextFm, "tags", topic);
-    // Biotech context: SEC analysis module auto-tag
-    if (ctx.moduleHint === "SEC_Analysis") {
-      nextFm = upsertKey(nextFm, "module", "SEC_Analysis");
-    }
+    if (ctx.theoryTopic?.trim()) nextFm = ensureListKey(nextFm, "tags", ctx.theoryTopic.trim());
   }
   if (type === "raw") {
     nextFm = upsertKey(nextFm, "type", "raw");
@@ -206,37 +187,30 @@ export function ensureSchemaFrontmatter(text: string, ctx: SchemaContext): strin
     nextFm = ensureListKey(nextFm, "tags", domain);
   }
   if (type === "theory") {
-    const topic = ctx.theoryTopic?.trim() || (domain === "biotech" ? "N_Glycan" : "");
+    const topic = ctx.theoryTopic?.trim() || "";
     nextFm = upsertKey(nextFm, "type", "theory");
     nextFm = upsertKey(nextFm, "status", "draft");
     nextFm = upsertKey(nextFm, "domain", domain);
     nextFm = upsertKey(nextFm, "workflow", "note_to_theory");
-    if (domain === "biotech") nextFm = upsertKey(nextFm, "topic", topic);
-    if (domain !== "biotech") nextFm = removeKey(nextFm, "topic");
+    if (topic) nextFm = upsertKey(nextFm, "topic", topic);
+    if (!topic) nextFm = removeKey(nextFm, "topic");
     nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
     nextFm = ensureListKey(nextFm, "tags", "theory");
     nextFm = ensureListKey(nextFm, "tags", domain);
-    if (domain === "biotech") nextFm = ensureListKey(nextFm, "tags", topic);
+    if (topic) nextFm = ensureListKey(nextFm, "tags", topic);
   }
   if (type === "method") {
-    const topic = ctx.theoryTopic?.trim() || (domain === "biotech" ? "Uncategorized" : "");
+    const topic = ctx.theoryTopic?.trim() || "";
     nextFm = upsertKey(nextFm, "type", "method");
     nextFm = upsertKey(nextFm, "status", "draft");
     nextFm = upsertKey(nextFm, "domain", domain);
     nextFm = upsertKey(nextFm, "workflow", "note_to_method");
-    if (domain === "biotech") nextFm = upsertKey(nextFm, "topic", topic);
-    if (domain !== "biotech") nextFm = removeKey(nextFm, "topic");
+    if (topic) nextFm = upsertKey(nextFm, "topic", topic);
+    if (!topic) nextFm = removeKey(nextFm, "topic");
     nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
     nextFm = ensureListKey(nextFm, "tags", "method");
     nextFm = ensureListKey(nextFm, "tags", domain);
-    if (domain === "biotech") nextFm = ensureListKey(nextFm, "tags", topic);
-  }
-
-  if (/sec|色谱分析/i.test(body)) {
-    nextFm = ensureListKey(nextFm, "tags", "SEC");
-    const sec = detectSecMetadata(body);
-    if (sec.purity && !hasKey(nextFm, "purity")) nextFm = upsertKey(nextFm, "purity", `"${sec.purity}"`);
-    if (sec.columnType && !hasKey(nextFm, "column_type")) nextFm = upsertKey(nextFm, "column_type", `"${sec.columnType}"`);
+    if (topic) nextFm = ensureListKey(nextFm, "tags", topic);
   }
 
   const wrapped = `---\n${nextFm.trimEnd()}\n---\n\n`;

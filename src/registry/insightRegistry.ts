@@ -55,6 +55,210 @@ export type SystemDomain = "openclaw" | "ai";
 
 type RegistryRecord = Record<string, unknown>;
 
+const DEFAULT_WORKFLOW_REGISTRY: RegistryRecord = {
+  workflows: {
+    wechat_to_raw: {
+      input_types: ["wechat_url"],
+      output_type: "raw",
+      schema: "raw_schema",
+      prompt: "wechat_to_raw_prompt",
+      path_key: "raw_wechat",
+      executor_action: "create_new_note",
+      filename_strategy: "source_based",
+      backend_mode: "local_script",
+      backend_skill: "wechat-to-obsidian"
+    },
+    markitdown_to_raw: {
+      input_types: ["vault_file"],
+      output_type: "raw",
+      schema: "raw_schema",
+      prompt: "markitdown_to_raw_prompt",
+      path_key: "raw_markitdown",
+      executor_action: "create_new_note",
+      filename_strategy: "source_based",
+      backend_mode: "local_script",
+      backend_skill: "markitdown"
+    },
+    raw_to_insight: {
+      input_types: ["raw_note"],
+      output_type: "insight",
+      executor_action: "create_new_note",
+      filename_strategy: "frontmatter_title",
+      domain_mapping: {
+        biotech: { schema: "general_insight_schema", prompt: "general_raw_to_insight_prompt", path_key: "insight_general" },
+        openclaw: { schema: "openclaw_insight_schema", prompt: "openclaw_raw_to_insight_prompt", path_key: "insight_openclaw" },
+        ai: { schema: "ai_insight_schema", prompt: "ai_raw_to_insight_prompt", path_key: "insight_ai" },
+        general: { schema: "general_insight_schema", prompt: "general_raw_to_insight_prompt", path_key: "insight_general" }
+      }
+    },
+    rewrite_current_note: {
+      input_types: ["current_note"],
+      output_type: "updated_note",
+      prompt: "rewrite_note_prompt",
+      executor_action: "replace_current_note",
+      filename_strategy: "keep_current",
+      schema_mode: "preserve_current"
+    },
+    fix_frontmatter: {
+      input_types: ["current_note"],
+      output_type: "updated_note",
+      prompt: "fix_frontmatter_prompt",
+      executor_action: "replace_current_note",
+      filename_strategy: "keep_current",
+      schema_mode: "repair_current"
+    },
+    append_to_current_note: {
+      input_types: ["current_note"],
+      output_type: "updated_note",
+      prompt: "append_note_prompt",
+      executor_action: "append_to_current_note",
+      filename_strategy: "keep_current",
+      schema_mode: "preserve_current"
+    }
+  }
+};
+
+const DEFAULT_SCHEMA_REGISTRY: RegistryRecord = {
+  schemas: {
+    raw_schema: {
+      required_frontmatter: ["type", "status", "date", "tags", "source", "domain", "workflow"],
+      fixed_values: { type: "raw", status: "draft" },
+      optional_frontmatter: ["title"],
+      body_sections: ["Source", "Original Content"]
+    },
+    general_insight_schema: {
+      required_frontmatter: ["type", "status", "date", "tags", "source", "domain", "workflow"],
+      fixed_values: { type: "insight", status: "draft", workflow: "raw_to_insight" },
+      optional_frontmatter: ["topic"],
+      body_sections: ["Summary", "Key Points", "Notes", "Related Notes"]
+    },
+    openclaw_insight_schema: {
+      required_frontmatter: ["type", "status", "date", "tags", "source", "domain", "workflow"],
+      fixed_values: { type: "insight", status: "draft", domain: "openclaw", workflow: "raw_to_insight" },
+      optional_frontmatter: ["topic", "component", "tool"],
+      body_sections: ["Summary", "Key Points", "Practical Relevance", "Potential Directions", "Related Notes"]
+    },
+    ai_insight_schema: {
+      required_frontmatter: ["type", "status", "date", "tags", "source", "domain", "workflow"],
+      fixed_values: { type: "insight", status: "draft", domain: "ai", workflow: "raw_to_insight" },
+      optional_frontmatter: ["topic", "model", "technique"],
+      body_sections: ["Summary", "Key Points", "Practical Relevance", "Potential Directions", "Related Notes"]
+    }
+  }
+};
+
+const DEFAULT_PROMPT_REGISTRY: RegistryRecord = {
+  prompts: {
+    wechat_to_raw_prompt: {
+      workflows: ["wechat_to_raw"],
+      domain: "general",
+      purpose: "convert a WeChat URL into a raw Obsidian note using the local extraction script",
+      constraints: [
+        "preserve the original source content as much as possible",
+        "output a raw note only",
+        "do not add analysis beyond minimal structure"
+      ],
+      output_style: "raw_capture"
+    },
+    markitdown_to_raw_prompt: {
+      workflows: ["markitdown_to_raw"],
+      domain: "general",
+      purpose: "convert a local file into a raw Obsidian note using MarkItDown",
+      constraints: [
+        "preserve the extracted source content as much as possible",
+        "output a raw note only",
+        "do not add analysis beyond minimal structure"
+      ],
+      output_style: "raw_capture"
+    },
+    general_raw_to_insight_prompt: {
+      workflows: ["raw_to_insight"],
+      domain: "general",
+      purpose: "convert a raw note into a structured insight note",
+      constraints: [
+        "preserve the original meaning",
+        "remove obvious noise and improve clarity",
+        "extract reusable takeaways",
+        "rebuild frontmatter instead of inheriting source metadata",
+        "follow general_insight_schema"
+      ],
+      output_style: "concise_structured_general"
+    },
+    openclaw_raw_to_insight_prompt: {
+      workflows: ["raw_to_insight"],
+      domain: "openclaw",
+      purpose: "convert an OpenClaw raw note into a structured insight note",
+      constraints: [
+        "focus on reusable understanding of tools, workflows, architecture, or implementation logic",
+        "preserve core technical meaning",
+        "remove noise and improve clarity",
+        "rebuild frontmatter instead of inheriting source metadata",
+        "follow openclaw_insight_schema"
+      ],
+      output_style: "concise_structured_technical"
+    },
+    ai_raw_to_insight_prompt: {
+      workflows: ["raw_to_insight"],
+      domain: "ai",
+      purpose: "convert an AI raw note into a structured insight note",
+      constraints: [
+        "focus on reusable understanding of models, prompting, evaluation, retrieval, or system behavior",
+        "preserve core technical meaning",
+        "remove noise and improve clarity",
+        "rebuild frontmatter instead of inheriting source metadata",
+        "follow ai_insight_schema"
+      ],
+      output_style: "concise_structured_technical"
+    },
+    rewrite_note_prompt: {
+      purpose: "rewrite the current note into a clearer, more structured version",
+      constraints: [
+        "preserve factual meaning",
+        "improve clarity and organization",
+        "do not invent unsupported details"
+      ],
+      output_style: "structured_rewrite"
+    },
+    fix_frontmatter_prompt: {
+      purpose: "repair the current note so its frontmatter matches the target schema",
+      constraints: [
+        "focus on schema compliance",
+        "do not rewrite the body unless required for structural validity",
+        "preserve existing meaning"
+      ],
+      output_style: "schema_repair"
+    },
+    append_note_prompt: {
+      purpose: "append new content to the current note",
+      constraints: [
+        "preserve existing content",
+        "append only the requested material",
+        "keep markdown structure valid"
+      ],
+      output_style: "append_markdown"
+    }
+  }
+};
+
+const DEFAULT_PATH_MAPPING: RegistryRecord = {
+  paths: {
+    raw_wechat: "PARA/03Resources/01Raw/WeChat/",
+    raw_markitdown: "PARA/03Resources/01Raw/MarkItDown/",
+    insight_general: "PARA/03Resources/02Insight/General/",
+    insight_openclaw: "PARA/03Resources/02Insight/OpenClaw/",
+    insight_ai: "PARA/03Resources/02Insight/AI/"
+  }
+};
+
+function defaultRegistryForPath(path: string): RegistryRecord | null {
+  const normalized = normalizePath(path);
+  if (normalized.endsWith("Workflow Registry/workflow_registry.yaml")) return DEFAULT_WORKFLOW_REGISTRY;
+  if (normalized.endsWith("Schema/schema_registry.yaml")) return DEFAULT_SCHEMA_REGISTRY;
+  if (normalized.endsWith("Prompts/prompt_registry.yaml") || normalized.endsWith("Prompts/prompts_registry.yaml")) return DEFAULT_PROMPT_REGISTRY;
+  if (normalized.endsWith("Path Mapping/path_mapping.yaml")) return DEFAULT_PATH_MAPPING;
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Registry Cache — mtime-based vault revision invalidation
 // ---------------------------------------------------------------------------
@@ -831,6 +1035,8 @@ export async function loadYamlFromVault(app: App, path: string): Promise<Registr
   });
   const file = resolveRegistryFile(app, candidates);
   if (!(file instanceof TFile)) {
+    const fallback = defaultRegistryForPath(normalized);
+    if (fallback) return fallback;
     throw new Error(`Registry file not found. Tried: ${candidates.flatMap((candidate) => [candidate, `${candidate}.md`]).join(", ")}`);
   }
 

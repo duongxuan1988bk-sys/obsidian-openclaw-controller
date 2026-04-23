@@ -1,8 +1,18 @@
 {
-  "name": "obsidian-openclaw-controller",
+  "name": "obsidian-to-openclaw",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
+  "description": "Obsidian plugin for connecting to OpenClaw, referencing notes, and running basic note workflows.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/duongxuan1988bk-sys/obsidian-openclaw-controller.git"
+  },
+  "homepage": "https://github.com/duongxuan1988bk-sys/obsidian-openclaw-controller",
+  "bugs": {
+    "url": "https://github.com/duongxuan1988bk-sys/obsidian-openclaw-controller/issues"
+  },
   "scripts": {
     "dev": "node ./scripts/dev.mjs",
     "test": "node ./scripts/test.mjs",

@@ -49,8 +49,8 @@ export class ToolManager {
 
     const text = content.toLowerCase();
     if (/method|protocol|步骤|workflow|方法/.test(text)) return "method";
-    if (/sec|色谱分析|issue|problem|实验问题|case/.test(text)) return "case";
-    if (/theory|principle|机制|原理|总结/.test(text)) return "theory";
+    if (/issue|problem|bug|incident|troubleshoot|case/.test(text)) return "case";
+    if (/theory|principle|architecture|mechanism|原理|总结/.test(text)) return "theory";
     return "insight";
   }
 
@@ -106,9 +106,7 @@ export class ToolManager {
     const fixed = ensureSchemaFrontmatter(content, {
       inferredType: finalType,
       theoryTopic: this.detectTheoryTopic(inferredType),
-      moduleHint: /sec|色谱分析/i.test(content) ? "SEC_Analysis" : undefined,
-      activeNotePath: fullPath,
-      additionalTags: /sec|色谱分析/i.test(content) && /biotech/i.test(fullPath) ? ["biotech"] : undefined
+      activeNotePath: fullPath
     });
 
     await this.ensureParentFolders(vault, fullPath);
@@ -129,9 +127,7 @@ export class ToolManager {
     const existing = await this.app.vault.cachedRead(file);
     const fixedExisting = ensureSchemaFrontmatter(existing, {
       inferredType: finalType,
-      moduleHint: /sec|色谱分析/i.test(content) ? "SEC_Analysis" : undefined,
-      activeNotePath: file.path,
-      additionalTags: /sec|色谱分析/i.test(content) && /biotech/i.test(file.path) ? ["biotech"] : undefined
+      activeNotePath: file.path
     });
 
     const leaf = this.app.workspace.getMostRecentLeaf();
@@ -171,9 +167,7 @@ export class ToolManager {
     const existing = await this.app.vault.cachedRead(file);
     const fixed = ensureSchemaFrontmatter(existing, {
       inferredType,
-      moduleHint: /sec|色谱分析/i.test(existing) ? "SEC_Analysis" : undefined,
-      activeNotePath: file.path,
-      additionalTags: /sec|色谱分析/i.test(existing) && /biotech/i.test(file.path) ? ["biotech"] : undefined
+      activeNotePath: file.path
     });
     await this.app.vault.modify(file, fixed);
     new Notice(`Schema repaired: ${file.path}`);
