@@ -1,0 +1,3 @@
+PyMuPDF
+# Optional, only needed for scanned PDFs / OCR fallback:
+# rapidocr_onnxruntime

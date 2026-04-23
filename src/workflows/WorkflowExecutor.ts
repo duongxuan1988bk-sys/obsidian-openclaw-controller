@@ -359,7 +359,7 @@ export class WorkflowExecutor {
 
       let patchedMarkdown = markdown;
       patchedMarkdown = normalizeRawExtractionStatus(patchedMarkdown);
-      patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "domain", "biotech");
+      patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "domain", "general");
       patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "workflow", "wechat_to_raw");
       patchedMarkdown = patchedMarkdown
         .replace(/^## 📌 原文$/gm, "## Original Content")
@@ -432,7 +432,7 @@ export class WorkflowExecutor {
       let patchedMarkdown = markdown;
       patchedMarkdown = normalizeRawExtractionStatus(patchedMarkdown);
       // Use IfMissing to preserve values already set by the python script
-      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "domain", "biotech");
+      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "domain", "general");
       patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "type", "raw");
       patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "source", pdfPath);
       patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "date", new Date().toISOString().split("T")[0]);
@@ -454,7 +454,7 @@ export class WorkflowExecutor {
         workflow: workflowName,
         sourceNote: pdfPath,
         targetNote: created.path,
-        domain: "biotech",
+        domain: "general",
         topic: "",
         model: this.options.currentModelName(),
         durationMs: Date.now() - startedAt,

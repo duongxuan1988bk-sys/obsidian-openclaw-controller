@@ -75,6 +75,11 @@ The plugin expects these settings in Obsidian:
 - `MarkItDown command`
 - `MarkItDown timeout`
 
+The repository includes helper scripts here:
+
+- `scripts/wechat_to_obsidian.py`
+- `scripts/pdf_to_obsidian.py`
+
 For OpenClaw node pairing, the usual values are:
 
 - `Client ID`: `node-host`
@@ -86,6 +91,13 @@ The `Gateway token` field accepts either:
 - a full setup code produced by `openclaw qr --setup-code-only`
 
 After successful pairing, the plugin stores device credentials locally.
+
+For a local checkout of this repository, the usual script path values are:
+
+```text
+<repo>/scripts/wechat_to_obsidian.py
+<repo>/scripts/pdf_to_obsidian.py
+```
 
 ## Default Workflows
 
@@ -100,6 +112,25 @@ Output path:
 PARA/03Resources/01Raw/WeChat/
 ```
 
+Requirements and notes:
+
+- Best on `macOS`
+- Browser automation uses AppleScript via `osascript`
+- The included script supports `Google Chrome` and `Safari`
+- In `stdout` mode the bundled script skips image download unless you extend it with `--assets-dir`
+- If browser extraction fails, the script falls back to plain HTTP fetching, which may return an incomplete article or a WeChat anti-bot page
+
+Chrome permission notes:
+
+1. Open the article in Chrome at least once and confirm you are already logged in if the page requires it.
+2. When macOS prompts for automation, allow Terminal, iTerm, or Obsidian to control `Google Chrome`.
+3. In Chrome, enable `View -> Developer -> Allow JavaScript from Apple Events` if AppleScript extraction is blocked.
+
+Safari notes:
+
+1. Enable `Develop -> Allow JavaScript from Apple Events`.
+2. Allow automation permission when macOS asks.
+
 ### PDF Raw
 
 Converts a PDF in the vault into one or more raw notes using your configured
@@ -111,16 +142,50 @@ Output path:
 PARA/03Resources/01Raw/PDF/<PDF filename>/
 ```
 
+Requirements and notes:
+
+- Python `3.10+` recommended
+- Install `PyMuPDF` for the included script:
+
+```bash
+pip install PyMuPDF
+```
+
+- Optional OCR for scanned PDFs:
+
+```bash
+pip install rapidocr_onnxruntime
+```
+
+- Without OCR, the script works best for text-based PDFs
+- In `stdout` mode the bundled script skips figure extraction unless you extend it with `--assets-dir`
+- If you want extracted figures in Obsidian, the simplest approach is to customize the script or wrap it so `--assets-dir` points into your vault
+- Very large or scan-heavy PDFs will be slower and may still need a separate OCR workflow
+
 ### MarkItDown
 
 Converts supported files such as `docx`, `pptx`, `xlsx`, `html`, `csv`, `json`,
 `xml`, `zip`, `epub`, and `md` into raw notes using the `markitdown` CLI.
+
+`markitdown` is not bundled with this plugin. You must install it yourself and
+set the command path in plugin settings.
 
 Output path:
 
 ```text
 PARA/03Resources/01Raw/MarkItDown/
 ```
+
+Example:
+
+```bash
+pip install markitdown
+```
+
+You must then set `MarkItDown command` in plugin settings to either:
+
+- `markitdown`
+- the full path to the installed CLI
 
 ### Rewrite Note
 
