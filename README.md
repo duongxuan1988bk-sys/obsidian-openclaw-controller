@@ -31,6 +31,31 @@ domain-specific workflows removed.
 
 ## Install
 
+### Quick Start
+
+1. Place this plugin folder in your vault at:
+
+```text
+<your-vault>/.obsidian/plugins/obsidian-to-openclaw/
+```
+
+2. If you installed from source, build it once:
+
+```bash
+npm install
+npm run build
+```
+
+3. Enable `Obsidian to OpenClaw` in Obsidian community plugins.
+4. Open the plugin settings and paste your OpenClaw node token into `Gateway token`.
+5. If your node is running on the default local address, the default values are usually enough:
+   `Gateway URL = ws://127.0.0.1:18789/`, `Client ID = node-host`, `Client mode = node`.
+6. Start chatting in the side panel.
+
+For core chat and note-reference features, most users only need a running local
+OpenClaw node plus a valid node token. The local script settings are only needed
+for optional workflows such as `WeChat Raw`, `PDF Raw`, and `MarkItDown`.
+
 ### Manual install for local development
 
 Copy or link this folder into your Obsidian plugin directory, for example:
@@ -47,6 +72,13 @@ npm run build
 ```
 
 Reload the plugin in Obsidian after each rebuild.
+
+If you clone the repository outside the Obsidian plugin directory, Obsidian will
+not load it automatically. The built files must end up inside:
+
+```text
+<your-vault>/.obsidian/plugins/obsidian-to-openclaw/
+```
 
 ### Release install
 
