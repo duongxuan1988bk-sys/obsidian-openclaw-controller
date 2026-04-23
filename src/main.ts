@@ -49,6 +49,7 @@ export default class OpenClawControllerPlugin extends Plugin {
   private rewriteCurrentNoteListeners = new Set<() => void | Promise<void>>();
   private fixFrontmatterListeners = new Set<() => void | Promise<void>>();
   private convertToTranslationListeners = new Set<() => void | Promise<void>>();
+  private generateImageListeners = new Set<() => void | Promise<void>>();
 
   // -----------------------------------------------------------------------
   // ConversionType → listener-set mapping
@@ -272,6 +273,19 @@ export default class OpenClawControllerPlugin extends Plugin {
       }
     });
 
+    this.addCommand({
+      id: "generate-image-for-current-note",
+      name: "OpenClaw: Generate image for current note",
+      checkCallback: (checking) => {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile || activeFile.extension !== "md") return false;
+        if (!checking) {
+          void this.requestGenerateImage();
+        }
+        return true;
+      }
+    });
+
     this.addSettingTab(new OpenClawSettingTab(this));
   }
 
@@ -376,6 +390,11 @@ export default class OpenClawControllerPlugin extends Plugin {
     return () => this.convertToTranslationListeners.delete(cb);
   }
 
+  onGenerateImageRequested(cb: () => void | Promise<void>): () => void {
+    this.generateImageListeners.add(cb);
+    return () => this.generateImageListeners.delete(cb);
+  }
+
   // ---------------------------------------------------------------------------
   // Private requestConvertToXxx — now thin wrappers around requestConversion(type).
   //
@@ -422,6 +441,17 @@ export default class OpenClawControllerPlugin extends Plugin {
 
   private async requestConvertToTranslation() {
     await this.requestConversion("translation");
+  }
+
+  private async requestGenerateImage() {
+    await this.activateView();
+    if (this.generateImageListeners.size === 0) {
+      new Notice("OpenClaw panel is not ready yet. Please try again in a moment.");
+      return;
+    }
+    for (const cb of this.generateImageListeners) {
+      await cb();
+    }
   }
 
   async loadOpenClawCatalog(): Promise<OpenClawCatalog> {

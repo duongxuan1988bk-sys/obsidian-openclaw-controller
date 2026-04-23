@@ -476,6 +476,51 @@ class RewriteFixConfirmModal extends Modal {
   }
 }
 
+class ConfirmActionModal extends Modal {
+  private settled = false;
+  private resolve: (confirmed: boolean) => void;
+
+  constructor(app: ObsidianApp, title: string, noteName: string, actionLabel: string, resolve: (confirmed: boolean) => void) {
+    super(app);
+    this.resolve = resolve;
+    this.title = title;
+    this.noteName = noteName;
+    this.actionLabel = actionLabel;
+  }
+
+  private title: string;
+  private noteName: string;
+  private actionLabel: string;
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("oc-url-modal");
+    contentEl.createEl("h2", { text: this.title });
+    contentEl.createEl("p", {
+      text: `${this.actionLabel} - ${this.noteName}\n\n确认要继续吗？`
+    });
+
+    const actions = contentEl.createDiv({ cls: "oc-url-modal-actions" });
+    const cancel = actions.createEl("button", { text: "取消" });
+    const confirm = actions.createEl("button", { text: "确认" });
+    confirm.addClass("mod-cta");
+    cancel.addEventListener("click", () => this.finish(false));
+    confirm.addEventListener("click", () => this.finish(true));
+  }
+
+  onClose() {
+    this.contentEl.empty();
+    if (!this.settled) this.resolve(false);
+  }
+
+  private finish(confirmed: boolean) {
+    this.settled = true;
+    this.resolve(confirmed);
+    this.close();
+  }
+}
+
 class LinkScanRangeModal extends Modal {
   private settled = false;
   private resolve: (days: LinkScanDays | null) => void;
@@ -751,6 +796,7 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   const rewriteCurrentNoteRef = useRef<() => void>(() => {});
   const fixFrontmatterRef = useRef<() => void>(() => {});
   const translateNoteRef = useRef<() => void>(() => {});
+  const generateImageRef = useRef<() => void>(() => {});
   const inputComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
 
@@ -788,6 +834,10 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
 
   useEffect(() => {
     return props.plugin.onConvertToTranslationRequested(() => translateNoteRef.current());
+  }, [props.plugin]);
+
+  useEffect(() => {
+    return props.plugin.onGenerateImageRequested(() => generateImageRef.current());
   }, [props.plugin]);
 
   useEffect(() => {
@@ -2105,6 +2155,98 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     }
   }
 
+  async function generateImageForCurrentNote() {
+    const action = "generate_image";
+    const startedAt = Date.now();
+    let step = "preflight";
+    if (conn !== "connected") {
+      new Notice("Generate Image failed: OpenClaw is not connected.");
+      setTurns((prev) => [
+        ...prev,
+        { id: uid(), role: "system", createdAt: Date.now(), content: `**Generate Image failed**: OpenClaw is not connected.` }
+      ]);
+      await logError(props.app, {
+        action,
+        workflow: "generate_image",
+        sourceNote: "",
+        step,
+        errorType: "ConnectionError",
+        message: "OpenClaw is not connected.",
+        durationMs: Date.now() - startedAt
+      });
+      return;
+    }
+
+    const activeFile = props.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== "md") {
+      new Notice("Generate Image failed: No markdown note is open.");
+      setTurns((prev) => [
+        ...prev,
+        { id: uid(), role: "system", createdAt: Date.now(), content: `**Generate Image failed**: No markdown note is open.` }
+      ]);
+      await logError(props.app, {
+        action,
+        workflow: "generate_image",
+        sourceNote: activeFile?.path ?? "",
+        step,
+        errorType: "PreflightError",
+        message: "No markdown note is open.",
+        durationMs: Date.now() - startedAt
+      });
+      return;
+    }
+
+    const title = activeFile.basename || activeFile.name.replace(/\.md$/i, "");
+
+    const confirmed = await confirmAction("生成配图", title, "生成配图");
+    if (!confirmed) {
+      new Notice("生成配图已取消");
+      return;
+    }
+
+    setSending(true);
+    setTurns((prev) => [
+      ...prev,
+      {
+        id: uid(),
+        role: "user",
+        createdAt: Date.now(),
+        content: `Generate Image: ${title}`,
+        references: [{ kind: "file", path: activeFile.path, label: title }]
+      },
+      {
+        id: uid(),
+        role: "system",
+        createdAt: Date.now(),
+        content: "Generate Image started. Sending note to LLM for prompt…"
+      }
+    ]);
+    console.log("[GenerateImage] start", { path: activeFile.path });
+
+    try {
+      const result = await createWorkflowExecutor().executeImageGeneration({
+        activeFile,
+        startedAt
+      });
+      new Notice(`Generate Image complete: ${result.imageRelativePath}`);
+      setTurns((prev) => [
+        ...prev,
+        { id: uid(), role: "system", createdAt: Date.now(), content: `Generate Image complete: ${result.imageRelativePath}` }
+      ]);
+      console.log("[GenerateImage] done", { path: result.imagePath });
+    } catch (error) {
+      const message = errorMessage(error);
+      new Notice(`Generate Image failed: ${message}`);
+      setTurns((prev) => [
+        ...prev,
+        { id: uid(), role: "system", createdAt: Date.now(), content: `**Generate Image failed**: ${message}` }
+      ]);
+      console.error("[GenerateImage] failed", error);
+    } finally {
+      setSending(false);
+    }
+  }
+
   function promptForWeChatUrl(): Promise<string | null> {
     return new Promise((resolve) => {
       new WeChatUrlModal(props.app, resolve).open();
@@ -2167,6 +2309,12 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   function confirmFixSchemaAfterRewrite(): Promise<boolean> {
     return new Promise((resolve) => {
       new RewriteFixConfirmModal(props.app, resolve).open();
+    });
+  }
+
+  function confirmAction(title: string, noteName: string, actionLabel: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      new ConfirmActionModal(props.app, title, noteName, actionLabel, resolve).open();
     });
   }
 
@@ -2333,6 +2481,13 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     }
 
     const title = activeFile.basename || activeFile.name.replace(/\.md$/i, "");
+
+    const confirmed = await confirmAction("翻译笔记", title, "翻译");
+    if (!confirmed) {
+      new Notice("翻译已取消");
+      return;
+    }
+
     setSending(true);
     setTurns((prev) => [
       ...prev,
@@ -2497,6 +2652,9 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
   translateNoteRef.current = () => {
     void translateCurrentNote();
   };
+  generateImageRef.current = () => {
+    void generateImageForCurrentNote();
+  };
 
   async function cycleUiSkin() {
     const nextSkin: OpenClawUiSkin = uiSkin === "apple" ? "claude" : "apple";
@@ -2566,6 +2724,7 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
         onRewriteNote={rewriteCurrentNote}
         onFixSchema={fixCurrentSchema}
         onTranslateNote={translateCurrentNote}
+        onGenerateImage={generateImageForCurrentNote}
         currentModelName={currentModelName()}
         visibleTurns={visibleTurns}
         vaultRevision={vaultRevision}

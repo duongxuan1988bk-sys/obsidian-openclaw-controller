@@ -33,6 +33,7 @@ type Props = {
   onRewriteNote: () => void;
   onFixSchema: () => void;
   onTranslateNote: () => void;
+  onGenerateImage: () => void;
 };
 
 // Map selected value → trigger the appropriate callback, then reset to default
@@ -53,6 +54,7 @@ function handleChange(
     onRewriteNote: () => void;
     onFixSchema: () => void;
     onTranslateNote: () => void;
+    onGenerateImage: () => void;
     setQuickAction: (v: string) => void;
   }
 ) {
@@ -100,6 +102,9 @@ function handleChange(
     case "translate-note":
       cbs.onTranslateNote();
       break;
+    case "generate-image":
+      cbs.onGenerateImage();
+      break;
     default:
       break;
   }
@@ -124,6 +129,7 @@ export function WorkflowPicker({
   onRewriteNote,
   onFixSchema,
   onTranslateNote,
+  onGenerateImage,
 }: Props) {
   const setQuickAction = onChange;
 
@@ -147,6 +153,7 @@ export function WorkflowPicker({
           onRewriteNote,
           onFixSchema,
           onTranslateNote,
+          onGenerateImage,
           setQuickAction,
         })
       }
@@ -169,6 +176,7 @@ export function WorkflowPicker({
         { value: "rewrite-note", label: "Rewrite Note", description: "replace with a clearer version" },
         { value: "fix-schema", label: "Fix Schema", description: "repair current frontmatter" },
         { value: "translate-note", label: "Translate", description: "English → Chinese translation" },
+        { value: "generate-image", label: "Generate Image", description: "LLM prompt → mmx → insert into note" },
         { value: "organize-links", label: "Note Links", description: "review Related Notes candidates" },
         { value: "section-capture", label: "抓取", type: "section" },
         { value: "convert-to-raw", label: "WeChat Raw", description: "WeChat URL → raw note" },

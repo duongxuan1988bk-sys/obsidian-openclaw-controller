@@ -44,18 +44,19 @@ export class ToolManager {
     const hint = (inferredType ?? "").toLowerCase();
     if (hint.startsWith("theory:")) return "theory";
     if (hint.startsWith("case:")) return "case";
+    if (hint.startsWith("method:")) return "method";
     if (hint === "raw" || hint === "insight" || hint === "theory" || hint === "case" || hint === "method") return hint;
 
     const text = content.toLowerCase();
-    if (/sec|色谱分析|issue|problem|实验问题|case/.test(text)) return "case";
     if (/method|protocol|步骤|workflow|方法/.test(text)) return "method";
+    if (/sec|色谱分析|issue|problem|实验问题|case/.test(text)) return "case";
     if (/theory|principle|机制|原理|总结/.test(text)) return "theory";
     return "insight";
   }
 
   private detectTheoryTopic(inferredType?: string): string | undefined {
     const [type, topic] = (inferredType ?? "").split(":");
-    if (type.toLowerCase() !== "theory" && type.toLowerCase() !== "case") return undefined;
+    if (!["theory", "case", "method"].includes(type.toLowerCase())) return undefined;
     return topic?.trim() || undefined;
   }
 

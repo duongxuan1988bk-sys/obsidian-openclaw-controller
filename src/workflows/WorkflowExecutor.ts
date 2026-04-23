@@ -1,7 +1,16 @@
 import type { App, TFile } from "obsidian";
 import { parseYaml } from "obsidian";
 import { logError, logExecution, logWarning } from "../monitoring/workflowLogs";
-import { runMarkItDownScript, runPdfScript, runWechatScript, splitMarkdownBySections } from "../localScripts/rawExtractors";
+
+declare const require: (module: "child_process" | "fs") => {
+  execSync: (command: string, options?: { encoding?: string; timeout?: number; cwd?: string; stdio?: unknown }) => string;
+  execFileSync: (command: string, args: string[], options?: { encoding?: string; timeout?: number; cwd?: string; env?: Record<string, string> }) => string;
+  mkdirSync: (path: string, options?: { recursive?: boolean }) => void;
+  copyFileSync: (src: string, dest: string) => void;
+  renameSync: (oldPath: string, newPath: string) => void;
+  existsSync: (path: string) => boolean;
+};
+import { runMarkItDownScript, runPdfScript, runWechatScript } from "../localScripts/rawExtractors";
 import {
   ensureMarkItDownRawMarkdown,
   resolveMarkItDownRawTargetDir,
@@ -417,104 +426,41 @@ export class WorkflowExecutor {
 
     try {
       const markdown = await runPdfScript(this.options.app, this.options.getSettings(), pdfPath);
-      this.options.onSystemTurn("PDF extracted. Splitting by sections…");
+      this.options.onSystemTurn("PDF extracted. Building raw note…");
 
       // Normalize the markdown
       let patchedMarkdown = markdown;
       patchedMarkdown = normalizeRawExtractionStatus(patchedMarkdown);
-
-      // Split into sections
-      const pdfBasename = pdfPath.split("/").pop() ?? "PDF Note";
-      const { folderName, sections } = splitMarkdownBySections(patchedMarkdown, pdfBasename);
-
-      if (sections.length === 0) {
-        // No sections found, treat as single note
-        patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "domain", "biotech");
-        patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "workflow", workflowName);
-        if (!hasExactMarkdownSection(patchedMarkdown, "source")) {
-          patchedMarkdown += "\n\n## Source\n\n- PDF: " + pdfPath + "\n";
-        }
-        if (!hasExactMarkdownSection(patchedMarkdown, "original content")) {
-          patchedMarkdown += "\n\n## Original Content\n\n[Content extracted from PDF]\n";
-        }
-
-        step = "write_target_note";
-        const targetDir = "PARA/03Resources/01Raw/PDF";
-        const targetPath = resolveRawOutputPath(this.options.app, targetDir, patchedMarkdown, pdfPath, undefined);
-        const created = await this.options.writeFile(targetPath, patchedMarkdown, "raw");
-        await logExecution(this.options.app, {
-          action,
-          workflow: workflowName,
-          sourceNote: pdfPath,
-          targetNote: created.path,
-          domain: "biotech",
-          topic: "",
-          model: this.options.currentModelName(),
-          durationMs: Date.now() - startedAt,
-          validationLevel: "PASS"
-        });
-        return { created: [created], markdown: patchedMarkdown };
-      }
-
-      // Write each section as a separate file in the folder
-      const targetDir = `PARA/03Resources/01Raw/PDF/${folderName}`;
-      const createdFiles: TFile[] = [];
+      // Use IfMissing to preserve values already set by the python script
+      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "domain", "biotech");
+      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "type", "raw");
+      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "source", pdfPath);
+      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "date", new Date().toISOString().split("T")[0]);
+      patchedMarkdown = upsertFrontmatterStringIfMissing(
+        patchedMarkdown,
+        "created",
+        frontmatterString(patchedMarkdown, "date") || new Date().toISOString().split("T")[0]
+      );
+      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "tags", "[raw, pdf]");
+      // workflow is always overridden to track which workflow generated the note
+      patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "workflow", workflowName);
 
       step = "write_target_note";
-      for (const section of sections) {
-        const sectionTitle = `${section.seq} ${section.canonicalTitle}`;
-        let sectionMarkdown = `# ${sectionTitle}\n\n${section.content}`;
-
-        // Add frontmatter
-        sectionMarkdown = `---\ntitle: ${sectionTitle}\ndate: ${new Date().toISOString().split("T")[0]}\nsource: ${pdfPath}\ntags: [raw, pdf, ${section.canonicalTitle.toLowerCase().replace(/\s+/g, "-")}]\ntype: raw\nstatus: new\ndomain: biotech\nworkflow: pdf_to_raw\n---\n\n${sectionMarkdown}`;
-
-        if (!hasExactMarkdownSection(sectionMarkdown, "source")) {
-          sectionMarkdown += "\n\n## Source\n\n- PDF: " + pdfPath + "\n";
-        }
-        if (!hasExactMarkdownSection(sectionMarkdown, "original content")) {
-          sectionMarkdown += "\n\n## Original Content\n\n[Content extracted from PDF]\n";
-        }
-
-        // Try writing with collision-safe suffix loop
-        let index = 1;
-        let written = false;
-        while (!written) {
-          const candidateName = index === 1
-            ? `${section.seq} ${section.canonicalTitle}.md`
-            : `${section.seq} ${section.canonicalTitle} ${index}.md`;
-          const candidatePath = `${targetDir}/${candidateName}`;
-          try {
-            const created = await this.options.writeFile(candidatePath, sectionMarkdown, "raw");
-            createdFiles.push(created);
-            written = true;
-          } catch (error) {
-            if ((error as Error).message.includes("already exists")) {
-              index += 1;
-              if (index > 100) {
-                throw new Error(`Could not write section ${sectionTitle}: too many collisions`);
-              }
-              // Continue loop to try next suffix
-            } else {
-              throw error; // Re-throw non-collision errors
-            }
-          }
-        }
-      }
-
-      const primaryFile = createdFiles[0];
+      const targetDir = "PARA/03Resources/01Raw/PDF";
+      const targetPath = resolveRawOutputPath(this.options.app, targetDir, patchedMarkdown, pdfPath, undefined);
+      const created = await this.options.writeFile(targetPath, patchedMarkdown, "raw");
       await logExecution(this.options.app, {
         action,
         workflow: workflowName,
         sourceNote: pdfPath,
-        targetNote: primaryFile.path,
+        targetNote: created.path,
         domain: "biotech",
         topic: "",
         model: this.options.currentModelName(),
         durationMs: Date.now() - startedAt,
         validationLevel: "PASS"
       });
-
-      return { created: createdFiles, markdown: patchedMarkdown };
+      return { created: [created], markdown: patchedMarkdown };
     } catch (error) {
       await logError(this.options.app, {
         action,
@@ -1037,6 +983,114 @@ export class WorkflowExecutor {
         durationMs: Date.now() - startedAt
       });
       markWorkflowErrorLogged(error);
+      throw error;
+    }
+  }
+
+  private getVaultFileSystemRoot(): string {
+    const adapter = this.options.app.vault.adapter as { getBasePath?: () => string };
+    const basePath = adapter.getBasePath?.();
+    if (!basePath) throw new Error("Cannot resolve vault filesystem path: adapter.getBasePath not available");
+    return basePath;
+  }
+
+  async executeImageGeneration(params: {
+    activeFile: TFile;
+    startedAt?: number;
+  }): Promise<{ imagePath: string; imageRelativePath: string; prompt: string }> {
+    const action = "generate_image";
+    const startedAt = params.startedAt ?? Date.now();
+    const { activeFile } = params;
+    const title = activeFile.basename;
+    let step = "read_note";
+
+    const MMX_PATH = "/Users/hushaozhi/.npm-global/bin/mmx";
+    const IMAGE_DIR = "PARA/03Resources/03Domains/02AI/00image";
+
+    // Use adapter.getBasePath() to get real filesystem path
+    const vaultRootFs = this.getVaultFileSystemRoot();
+    const vaultImagesDir = `${vaultRootFs}/${IMAGE_DIR}`;
+
+    try {
+      const content = await this.options.app.vault.cachedRead(activeFile);
+      if (!content.trim()) throw new Error("Current note content is empty.");
+
+      step = "send_to_llm";
+      this.options.onSystemTurn("Generating image prompt…");
+
+      const imagePromptRequest = [
+        "Based on the following note, generate a concise English image generation prompt (1-2 sentences, suitable for DALL-E/Midjourney).",
+        "Include the main subject, scene, style, and mood. Be specific but concise.",
+        "Only return the image prompt, nothing else.",
+        "",
+        "Note title: " + title,
+        "Note content (first 1500 chars):",
+        content.substring(0, 1500)
+      ].join("\n");
+
+      const replyPromise = this.options.waitForMarkdownReply();
+      const res = await this.options.getClient()?.chatSend(imagePromptRequest);
+
+      if (!res) throw new Error("OpenClaw client is not ready.");
+      if (!res.ok) {
+        this.options.cancelPendingReply();
+        throw new Error(res.error?.message ?? "Image prompt request rejected");
+      }
+
+      step = "wait_for_prompt";
+      const imagePrompt = (await replyPromise).trim();
+      if (!imagePrompt) throw new Error("LLM returned empty image prompt.");
+
+      this.options.onSystemTurn(`Image prompt: ${imagePrompt}`);
+
+      step = "call_mmx";
+      const timestamp = Date.now();
+      const safeTitle = sanitizeFilenamePart(title).substring(0, 30);
+      const imageFilename = `${timestamp}_${safeTitle}.jpg`;
+
+      // Use execFile with argv array to avoid shell injection (no string concatenation)
+      // Include common bin directories in PATH so env-shebang scripts (e.g., #!/usr/bin/env node) can find node
+      const mmxArgs = ["image", "generate", "--resolution", "2048x1024", "--output", "json", imagePrompt];
+      const mmxOutput = require("child_process").execFileSync(MMX_PATH, mmxArgs, {
+        encoding: "utf-8",
+        timeout: 120000,
+        cwd: vaultRootFs,
+        env: { PATH: "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin" }
+      });
+      const mmxResult = JSON.parse(mmxOutput);
+      const generatedFileName = mmxResult.saved?.[0];
+      if (!generatedFileName) throw new Error("mmx did not return saved file path.");
+
+      // mmx saves relative to cwd; construct absolute path to the saved file
+      const generatedFileAbs = `${vaultRootFs}/${generatedFileName}`;
+      const fs = require("fs");
+      if (!fs.existsSync(generatedFileAbs)) {
+        throw new Error(`mmx saved file not found at: ${generatedFileAbs}`);
+      }
+      fs.mkdirSync(vaultImagesDir, { recursive: true });
+      const finalDest = `${vaultImagesDir}/${imageFilename}`;
+      fs.copyFileSync(generatedFileAbs, finalDest);
+
+      step = "append_to_note";
+      const imageRelativePath = `${IMAGE_DIR}/${imageFilename}`;
+      const imageMarkdown = `\n\n![${title}](${imageRelativePath})\n`;
+      const currentContent = await this.options.app.vault.cachedRead(activeFile);
+      await this.options.replaceFile(activeFile, currentContent + imageMarkdown);
+
+      this.options.onSystemTurn(`Image saved: ${imageFilename}`);
+
+      return { imagePath: `${vaultImagesDir}/${imageFilename}`, imageRelativePath, prompt: imagePrompt };
+    } catch (error) {
+      this.options.cancelPendingReply();
+      await logError(this.options.app, {
+        action,
+        workflow: "generate_image",
+        sourceNote: activeFile.path,
+        step,
+        errorType: errorType(error),
+        message: errorMessage(error),
+        durationMs: Date.now() - startedAt
+      });
       throw error;
     }
   }

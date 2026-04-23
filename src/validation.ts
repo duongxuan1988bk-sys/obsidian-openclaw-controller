@@ -62,19 +62,38 @@ function parseFrontmatter(markdown: string): Frontmatter | null {
     // naive YAML parse for simple key: value pairs
     const lines = match[1].split("\n");
     const result: Frontmatter = {};
+    let index = 0;
 
-    for (const line of lines) {
+    while (index < lines.length) {
+      const line = lines[index];
       const colonIdx = line.indexOf(":");
-      if (colonIdx === -1) continue;
+      if (colonIdx === -1) {
+        index += 1;
+        continue;
+      }
 
       const key = line.slice(0, colonIdx).trim();
       const rawValue = line.slice(colonIdx + 1).trim();
 
-      if (!key) continue;
+      if (!key) {
+        index += 1;
+        continue;
+      }
 
       // bare value (no quotes)
       if (!rawValue) {
-        result[key] = "";
+        const listItems: string[] = [];
+        let cursor = index + 1;
+        while (cursor < lines.length) {
+          const nextLine = lines[cursor];
+          const itemMatch = nextLine.match(/^\s*-\s+(.+?)\s*$/);
+          if (!itemMatch) break;
+          listItems.push(itemMatch[1].trim().replace(/^["']|["']$/g, ""));
+          cursor += 1;
+        }
+
+        result[key] = listItems.length > 0 ? listItems : "";
+        index = cursor;
         continue;
       }
 
@@ -82,11 +101,13 @@ function parseFrontmatter(markdown: string): Frontmatter | null {
       const doubleQuoteMatch = rawValue.match(/^"([^"]*)"$/);
       if (doubleQuoteMatch) {
         result[key] = doubleQuoteMatch[1];
+        index += 1;
         continue;
       }
       const singleQuoteMatch = rawValue.match(/^'([^']*)'$/);
       if (singleQuoteMatch) {
         result[key] = singleQuoteMatch[1];
+        index += 1;
         continue;
       }
 
@@ -97,11 +118,13 @@ function parseFrontmatter(markdown: string): Frontmatter | null {
           .split(",")
           .map((s) => s.trim().replace(/^["']|["']$/g, ""))
           .filter(Boolean);
+        index += 1;
         continue;
       }
 
       // plain value
       result[key] = rawValue.replace(/^["']|["']$/g, "");
+      index += 1;
     }
 
     return result;

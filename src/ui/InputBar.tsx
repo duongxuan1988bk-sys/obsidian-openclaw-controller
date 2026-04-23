@@ -72,6 +72,7 @@ type Props = {
   onRewriteNote: () => void;
   onFixSchema: () => void;
   onTranslateNote: () => void;
+  onGenerateImage: () => void;
 
   // Model display
   currentModelName: string;
@@ -122,6 +123,7 @@ export function InputBar({
   onRewriteNote,
   onFixSchema,
   onTranslateNote,
+  onGenerateImage,
   currentModelName,
   visibleTurns,
   vaultRevision,
@@ -227,7 +229,16 @@ export function InputBar({
               onRewriteNote={onRewriteNote}
               onFixSchema={onFixSchema}
               onTranslateNote={onTranslateNote}
+              onGenerateImage={onGenerateImage}
             />
+            <button
+              className="oc-glass-icon-btn"
+              type="button"
+              onClick={() => onGenerateImage()}
+              title="Generate image for current note"
+            >
+              <Sparkles size={14} />
+            </button>
             <button
               className="oc-glass-icon-btn"
               type="button"

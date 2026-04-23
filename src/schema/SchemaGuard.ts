@@ -30,49 +30,88 @@ function readKey(fm: string, key: string): string {
   return match?.[1]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
 }
 
+function readListKey(fm: string, key: string): string[] {
+  const lines = fm.split("\n");
+  const values: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(new RegExp(`^${key}\\s*:\\s*(.*)$`));
+    if (!match) continue;
+
+    const rawValue = match[1].trim();
+    if (rawValue.startsWith("[") && rawValue.endsWith("]")) {
+      values.push(
+        ...rawValue
+          .slice(1, -1)
+          .split(",")
+          .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
+          .filter(Boolean)
+      );
+      continue;
+    }
+
+    if (!rawValue) {
+      let cursor = index + 1;
+      while (cursor < lines.length) {
+        const itemMatch = lines[cursor].match(/^\s*-\s+(.+?)\s*$/);
+        if (!itemMatch) break;
+        values.push(itemMatch[1].trim().replace(/^['"]|['"]$/g, ""));
+        cursor += 1;
+      }
+      index = cursor - 1;
+    }
+  }
+
+  return values;
+}
+
 function dateOnly(value: string): string {
   const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
   return match?.[1] ?? "";
 }
 
 function upsertKey(fm: string, key: string, valueLine: string): string {
-  const re = new RegExp(`^${key}\\s*:[^\\n]*$`, "m");
-  if (re.test(fm)) return fm.replace(re, `${key}: ${valueLine}`);
-  return fm.trimEnd() + `\n${key}: ${valueLine}\n`;
+  const cleaned = removeKey(fm, key).trimEnd();
+  return cleaned ? `${cleaned}\n${key}: ${valueLine}\n` : `${key}: ${valueLine}\n`;
 }
 
 function removeKey(fm: string, key: string): string {
-  return fm.replace(new RegExp(`^${key}\\s*:[^\\n]*\\n?`, "m"), "");
+  const lines = fm.split("\n");
+  const kept: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!new RegExp(`^${key}\\s*:`).test(line)) {
+      kept.push(line);
+      continue;
+    }
+
+    const rawValue = line.replace(new RegExp(`^${key}\\s*:\\s*`), "").trim();
+    if (!rawValue) {
+      let cursor = index + 1;
+      while (cursor < lines.length && /^\s*-\s+/.test(lines[cursor])) cursor += 1;
+      index = cursor - 1;
+    }
+  }
+
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
 function ensureListKey(fm: string, key: string, tag: string): string {
-  const re = new RegExp(`^${key}\\s*:\\s*\\[(.*?)\\]\\s*$`, "m");
-  const m = fm.match(re);
-  if (!m) {
-    return fm.trimEnd() + `\n${key}: [${tag}]\n`;
-  }
-  const inner = m[1].trim();
-  const items = inner ? inner.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const items = readListKey(fm, key);
   if (items.includes(tag)) return fm;
-  const next = [...items, tag].join(", ");
-  return fm.replace(re, `${key}: [${next}]`);
+  return setListKey(fm, key, [...items, tag]);
 }
 
 function setListKey(fm: string, key: string, tags: string[]): string {
   const unique = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
   const value = `[${unique.join(", ")}]`;
-  const re = new RegExp(`^${key}\\s*:\\s*.*$`, "m");
-  if (re.test(fm)) return fm.replace(re, `${key}: ${value}`);
-  return fm.trimEnd() + `\n${key}: ${value}\n`;
+  const cleaned = removeKey(fm, key).trimEnd();
+  return cleaned ? `${cleaned}\n${key}: ${value}\n` : `${key}: ${value}\n`;
 }
 
 function readInlineListKey(fm: string, key: string): string[] {
-  const m = fm.match(new RegExp(`^${key}\\s*:\\s*\\[(.*?)\\]\\s*$`, "m"));
-  if (!m) return [];
-  return m[1]
-    .split(",")
-    .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
-    .filter(Boolean);
+  return readListKey(fm, key);
 }
 
 function removeListItems(fm: string, key: string, blocked: string[]): string {
