@@ -6,14 +6,14 @@ export type ToolWriteFile = {
   tool: "write_file";
   path: string;
   content: string;
-  inferredType?: "raw" | "insight" | "theory" | "case" | "method" | string;
+  inferredType?: "raw" | "insight" | string;
 };
 
 export type ToolModifyFile = {
   tool: "modify_file";
   target: "active_note";
   content: string;
-  inferredType?: "raw" | "insight" | "theory" | "case" | "method" | string;
+  inferredType?: "raw" | "insight" | string;
 };
 
 export type ToolRequest = ToolWriteFile | ToolModifyFile;
@@ -40,24 +40,13 @@ export class ToolManager {
     throw new Error(`Unknown tool: ${(req as any).tool}`);
   }
 
-  private detectType(content: string, inferredType?: string): "raw" | "insight" | "theory" | "case" | "method" {
+  private detectType(content: string, inferredType?: string): "raw" | "insight" {
     const hint = (inferredType ?? "").toLowerCase();
-    if (hint.startsWith("theory:")) return "theory";
-    if (hint.startsWith("case:")) return "case";
-    if (hint.startsWith("method:")) return "method";
-    if (hint === "raw" || hint === "insight" || hint === "theory" || hint === "case" || hint === "method") return hint;
+    if (hint === "raw" || hint === "insight") return hint;
 
     const text = content.toLowerCase();
-    if (/method|protocol|步骤|workflow|方法/.test(text)) return "method";
-    if (/issue|problem|bug|incident|troubleshoot|case/.test(text)) return "case";
-    if (/theory|principle|architecture|mechanism|原理|总结/.test(text)) return "theory";
+    if (/source|original content|raw|capture|摘录|原文/.test(text)) return "raw";
     return "insight";
-  }
-
-  private detectTheoryTopic(inferredType?: string): string | undefined {
-    const [type, topic] = (inferredType ?? "").split(":");
-    if (!["theory", "case", "method"].includes(type.toLowerCase())) return undefined;
-    return topic?.trim() || undefined;
   }
 
   private deriveFilename(content: string, inferredType?: string): string {
@@ -82,17 +71,7 @@ export class ToolManager {
     // If planner already outputs PARA/... keep it.
     if (/^PARA\//i.test(raw)) return normalizePath(raw);
 
-    const type = (inferredType ?? "").toLowerCase();
-    const base =
-      type === "case"
-        ? s.paraCaseBase
-        : type === "method"
-          ? s.paraMethodBase
-          : type === "theory"
-            ? s.paraTheoryBase
-            : s.paraInsightBase;
-
-    return normalizePath(`${base.replace(/\/$/, "")}/${raw}`);
+    return normalizePath(`${s.paraInsightBase.replace(/\/$/, "")}/${raw}`);
   }
 
   async writeFile(path: string, content: string, inferredType?: string): Promise<TFile> {
@@ -105,7 +84,6 @@ export class ToolManager {
     const fullPath = this.resolveParaPath(finalPath, finalType);
     const fixed = ensureSchemaFrontmatter(content, {
       inferredType: finalType,
-      theoryTopic: this.detectTheoryTopic(inferredType),
       activeNotePath: fullPath
     });
 

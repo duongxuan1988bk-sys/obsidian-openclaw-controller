@@ -32,7 +32,7 @@ const titleFromFilename = ensureMarkItDownRawMarkdown(
 Body extracted from Word.
 `,
   "Imports/PRO-F-054 V01 ADC药物中DMA残留检测方法.docx",
-  "biotech"
+  "general"
 );
 
 assert.match(
@@ -64,16 +64,16 @@ status: failed-extract
 
 ## Original Content
 
-[MarkItDown extraction failed: command not found]
+  [MarkItDown extraction failed: command not found]
 `,
   "Imports/Broken.docx",
-  "biotech"
+  "general"
 );
 
 assert.equal(validateNote(failed).level, "PASS", "failed MarkItDown extraction note remains a valid raw note");
 assert.match(failed, /^status: failed-extract$/m, "failed extraction status is preserved");
 assert.doesNotMatch(failed, /^status: draft$/m, "failed extraction is not rewritten to draft");
-assert.match(failed, /^domain: biotech$/m, "failed extraction receives selected domain");
+assert.match(failed, /^domain: general$/m, "failed extraction receives selected domain");
 assert.match(failed, /^workflow: markitdown_to_raw$/m, "failed extraction receives workflow");
 
 assert.equal(
@@ -85,4 +85,9 @@ assert.equal(
   resolveMarkItDownRawTargetDir("openclaw"),
   "PARA/03Resources/01Raw/MarkItDown/OpenClaw",
   "OpenClaw MarkItDown raw output uses existing vault folder casing"
+);
+assert.equal(
+  resolveMarkItDownRawTargetDir("general"),
+  "PARA/03Resources/01Raw/MarkItDown/General",
+  "General MarkItDown raw output uses the generic folder"
 );

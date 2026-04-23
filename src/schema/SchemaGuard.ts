@@ -3,8 +3,6 @@ type SchemaContext = {
   moduleHint?: string;
   activeNotePath?: string;
   additionalTags?: string[];
-  // Topic chosen by the registry-driven conversion action, e.g. theory:SEC or case:CEX.
-  theoryTopic?: string;
 };
 
 function todayISO(): string {
@@ -156,19 +154,6 @@ export function ensureSchemaFrontmatter(text: string, ctx: SchemaContext): strin
     nextFm = ensureListKey(nextFm, "tags", tag);
   }
 
-  if (type === "case") {
-    nextFm = upsertKey(nextFm, "type", "case");
-    nextFm = upsertKey(nextFm, "status", "draft");
-    nextFm = upsertKey(nextFm, "domain", domain);
-    nextFm = upsertKey(nextFm, "workflow", "note_to_case");
-    if (ctx.theoryTopic?.trim()) nextFm = upsertKey(nextFm, "topic", ctx.theoryTopic.trim());
-    if (!ctx.theoryTopic?.trim()) nextFm = removeKey(nextFm, "topic");
-    if (!hasKey(nextFm, "problem_type")) nextFm = upsertKey(nextFm, "problem_type", "unspecified");
-    nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
-    nextFm = ensureListKey(nextFm, "tags", "case");
-    nextFm = ensureListKey(nextFm, "tags", domain);
-    if (ctx.theoryTopic?.trim()) nextFm = ensureListKey(nextFm, "tags", ctx.theoryTopic.trim());
-  }
   if (type === "raw") {
     nextFm = upsertKey(nextFm, "type", "raw");
     if (readKey(nextFm, "status") !== "failed-extract") {
@@ -185,32 +170,6 @@ export function ensureSchemaFrontmatter(text: string, ctx: SchemaContext): strin
     nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
     nextFm = ensureListKey(nextFm, "tags", "insight");
     nextFm = ensureListKey(nextFm, "tags", domain);
-  }
-  if (type === "theory") {
-    const topic = ctx.theoryTopic?.trim() || "";
-    nextFm = upsertKey(nextFm, "type", "theory");
-    nextFm = upsertKey(nextFm, "status", "draft");
-    nextFm = upsertKey(nextFm, "domain", domain);
-    nextFm = upsertKey(nextFm, "workflow", "note_to_theory");
-    if (topic) nextFm = upsertKey(nextFm, "topic", topic);
-    if (!topic) nextFm = removeKey(nextFm, "topic");
-    nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
-    nextFm = ensureListKey(nextFm, "tags", "theory");
-    nextFm = ensureListKey(nextFm, "tags", domain);
-    if (topic) nextFm = ensureListKey(nextFm, "tags", topic);
-  }
-  if (type === "method") {
-    const topic = ctx.theoryTopic?.trim() || "";
-    nextFm = upsertKey(nextFm, "type", "method");
-    nextFm = upsertKey(nextFm, "status", "draft");
-    nextFm = upsertKey(nextFm, "domain", domain);
-    nextFm = upsertKey(nextFm, "workflow", "note_to_method");
-    if (topic) nextFm = upsertKey(nextFm, "topic", topic);
-    if (!topic) nextFm = removeKey(nextFm, "topic");
-    nextFm = removeListItems(nextFm, "tags", ["raw", "Obsidian"]);
-    nextFm = ensureListKey(nextFm, "tags", "method");
-    nextFm = ensureListKey(nextFm, "tags", domain);
-    if (topic) nextFm = ensureListKey(nextFm, "tags", topic);
   }
 
   const wrapped = `---\n${nextFm.trimEnd()}\n---\n\n`;

@@ -15,9 +15,7 @@ export function resolveMarkItDownRawTargetDir(domain: RawDomain): string {
     ? "AI"
     : domain === "openclaw"
       ? "OpenClaw"
-      : domain === "biotech"
-        ? "Biotech"
-        : "General";
+      : "General";
   return `PARA/03Resources/01Raw/MarkItDown/${segment}`;
 }
 

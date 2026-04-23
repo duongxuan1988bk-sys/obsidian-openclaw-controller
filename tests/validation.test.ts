@@ -67,30 +67,6 @@ assert.equal(
 );
 
 assert.equal(
-  validateInput({ workflowName: "note_to_theory", currentNoteContent: longContent, domain: "openclaw" }).level,
-  "PASS",
-  "openclaw theory can use domain_mapping without topic"
-);
-
-assert.equal(
-  validateInput({ workflowName: "note_to_theory", currentNoteContent: longContent, domain: "biotech" }).level,
-  "FAIL",
-  "biotech theory still requires topic"
-);
-
-assert.equal(
-  validateInput({ workflowName: "note_to_doc", currentNoteContent: longContent, domain: "ai" }).level,
-  "PASS",
-  "doc workflows require content and domain"
-);
-
-assert.equal(
-  validateInput({ workflowName: "note_to_case_by_domain", currentNoteContent: longContent }).level,
-  "FAIL",
-  "domain case workflow rejects missing domain"
-);
-
-assert.equal(
   sanitizeFilenamePart('Quarterly/Report:*? "draft"'),
   "Quarterly Report draft",
   "sanitizeFilenamePart strips reserved filename characters"
@@ -195,7 +171,7 @@ status: new
 date: 2026-04-17
 tags: [raw]
 source: test
-domain: biotech
+domain: general
 workflow: pdf_to_raw
 ---
 
@@ -218,7 +194,7 @@ status: new
 date: 2026-04-17
 tags: [insight]
 source: test
-domain: biotech
+domain: general
 workflow: raw_to_insight
 ---
 
@@ -247,43 +223,3 @@ source: test
 `;
 
 assert.equal(validateNote(invalidRaw).level, "FAIL", "missing raw fields and sections fails");
-
-const validMethodWithYamlListTags = `---
-type: method
-status: draft
-date: 2026-04-17
-tags:
-  - method
-  - biotech
-  - SEC
-source: test
-domain: biotech
-workflow: note_to_method
-topic: SEC
-method_family: SEC
----
-
-# SEC Method
-
-## Purpose
-
-purpose
-
-## Scope
-
-scope
-
-## Workflow
-
-workflow
-
-## Key Parameters
-
-params
-`;
-
-assert.equal(
-  validateNote(validMethodWithYamlListTags).level,
-  "WARNING",
-  "method note with YAML list tags should not fail frontmatter validation"
-);

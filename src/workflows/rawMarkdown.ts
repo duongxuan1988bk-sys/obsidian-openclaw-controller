@@ -1,4 +1,4 @@
-export type RawDomain = "biotech" | "openclaw" | "ai" | "general";
+export type RawDomain = "openclaw" | "ai" | "general";
 
 export function todayISO(): string {
   const now = new Date();

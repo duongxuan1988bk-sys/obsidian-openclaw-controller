@@ -20,7 +20,7 @@ type: raw
 date: 2026-04-17
 tags: [raw, OCR]
 source: paper.pdf
-domain: biotech
+domain: general
 workflow: pdf_to_raw
 ---
 

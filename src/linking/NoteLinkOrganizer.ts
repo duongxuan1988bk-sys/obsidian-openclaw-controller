@@ -4,16 +4,11 @@ export type LinkScanDays = 3 | 7 | 14;
 
 export type LinkableNoteType =
   | "insight"
-  | "theory"
-  | "case"
   | "doc"
-  | "debug"
-  | "system"
   | "concept"
   | "summary"
   | "permanent"
-  | "literature"
-  | "method";
+  | "literature";
 
 export type LinkableNote = {
   file: TFile;
@@ -92,16 +87,11 @@ const RELATED_BLOCK_TRAILING_SECTIONS = new Set([
 
 const LINKABLE_TYPES = new Set<LinkableNoteType>([
   "insight",
-  "theory",
-  "case",
   "doc",
-  "debug",
-  "system",
   "concept",
   "summary",
   "permanent",
-  "literature",
-  "method"
+  "literature"
 ]);
 
 const RAW_OR_INTERMEDIATE_TYPES = new Set([
@@ -266,22 +256,12 @@ function inferNoteType(file: TFile, frontmatter: Record<string, unknown>): Linka
   const workflow = scalar(frontmatter.workflow).toLowerCase();
   if (workflow.includes("_to_raw") || workflow.includes("pdf_to_raw") || workflow.includes("wechat_to_raw")) return null;
   if (workflow.includes("raw_to_insight")) return "insight";
-  if (workflow.includes("note_to_theory")) return "theory";
-  if (workflow.includes("note_to_case")) return "case";
-  if (workflow.includes("note_to_method")) return "method";
   if (workflow.includes("note_to_doc")) return "doc";
-  if (workflow.includes("note_to_debug")) return "debug";
-  if (workflow.includes("note_to_system")) return "system";
 
   const path = file.path.toLowerCase();
   if (path.includes("/01raw/") || path.includes("/01raw")) return null;
   if (path.includes("/02insight/")) return "insight";
-  if (path.includes("/01theory/")) return "theory";
-  if (path.includes("/02case/") || path.includes("/03user case/")) return "case";
-  if (path.includes("/02method/") || path.includes("/method/") || path.includes("/02_method_development/")) return "method";
   if (path.includes("/07doc/") || path.includes("/doc/")) return "doc";
-  if (path.includes("/04debug/") || path.includes("/debug/")) return "debug";
-  if (path.includes("/00system/") || path.includes("/system/")) return "system";
 
   return null;
 }

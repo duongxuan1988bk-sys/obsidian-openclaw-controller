@@ -1,16 +1,15 @@
-import type { App, TFile } from "obsidian";
-import { parseYaml } from "obsidian";
-import { logError, logExecution, logWarning } from "../monitoring/workflowLogs";
-
-declare const require: (module: "child_process" | "fs") => {
-  execSync: (command: string, options?: { encoding?: string; timeout?: number; cwd?: string; stdio?: unknown }) => string;
-  execFileSync: (command: string, args: string[], options?: { encoding?: string; timeout?: number; cwd?: string; env?: Record<string, string> }) => string;
-  mkdirSync: (path: string, options?: { recursive?: boolean }) => void;
-  copyFileSync: (src: string, dest: string) => void;
-  renameSync: (oldPath: string, newPath: string) => void;
-  existsSync: (path: string) => boolean;
-};
+import { parseYaml, type App, type TFile } from "obsidian";
 import { runMarkItDownScript, runPdfScript, runWechatScript } from "../localScripts/rawExtractors";
+import { logError, logExecution, logWarning } from "../monitoring/workflowLogs";
+import type { OpenClawClient } from "../openclaw/OpenClawClient";
+import {
+  resolveFixFrontmatterWorkflow,
+  resolveRawSkillWorkflow,
+  resolveRewriteWorkflow
+} from "../registry/insightRegistry";
+import type { OpenClawSettings } from "../settings";
+import { resolveOutputPath, resolveRawOutputPath, sanitizeFilenamePart } from "../utils/notePaths";
+import { validateInput, validateNote } from "../validation";
 import {
   ensureMarkItDownRawMarkdown,
   resolveMarkItDownRawTargetDir,
@@ -23,50 +22,6 @@ import {
   upsertRawFrontmatterString as upsertFrontmatterString,
   upsertRawFrontmatterStringIfMissing as upsertFrontmatterStringIfMissing
 } from "./rawMarkdown";
-import type { OpenClawClient } from "../openclaw/OpenClawClient";
-import {
-  resolveCaseByDomainWorkflow,
-  resolveCaseWorkflow,
-  resolveDebugWorkflow,
-  resolveDocWorkflow,
-  resolveFixFrontmatterWorkflow,
-  resolveInsightWorkflow,
-  resolveMethodWorkflow,
-  resolveRawSkillWorkflow,
-  resolveRewriteWorkflow,
-  resolveSystemWorkflow,
-  resolveTheoryByDomainWorkflow,
-  resolveTheoryWorkflow,
-  type CaseTopic,
-  type InsightDomain,
-  type MethodTopic,
-  type TheoryTopic
-} from "../registry/insightRegistry";
-import type { OpenClawSettings } from "../settings";
-import { resolveOutputPath, resolveRawOutputPath, sanitizeFilenamePart } from "../utils/notePaths";
-import { validateInput, validateNote } from "../validation";
-
-export type RunnableWorkflowName =
-  | "raw_to_insight"
-  | "note_to_theory"
-  | "note_to_case"
-  | "note_to_method"
-  | "note_to_doc"
-  | "note_to_debug"
-  | "note_to_system"
-  | "note_to_case_by_domain"
-  | "rewrite_current_note"
-  | "fix_frontmatter";
-
-export type WorkflowRunContext = {
-  title: string;
-  path: string;
-  topic?: string;
-  domain?: string;
-  action?: string;
-};
-
-export type RegistryConvertKind = "insight" | "theory" | "case" | "method" | "doc" | "debug" | "system" | "case_by_domain";
 
 type WorkflowExecutorOptions = {
   app: App;
@@ -80,33 +35,28 @@ type WorkflowExecutorOptions = {
   currentModelName: () => string;
 };
 
+type EditableWorkflowName = "rewrite_current_note" | "fix_frontmatter";
+
+type WorkflowRunContext = {
+  title: string;
+  path: string;
+  action?: string;
+};
+
 function normalizeMarkdownArtifact(value: string): string {
   const trimmed = value.trim();
   const fenced = trimmed.match(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i);
   return (fenced?.[1] ?? trimmed).trim() + "\n";
 }
 
-/**
- * Restructure translated markdown so that the body content lives under
- * ## Original Content. The LLM may return translated text at the root level;
- * this moves it into the required ## Original Content section and removes
- * the duplicate root-level content.
- */
 export function promoteToOriginalContent(markdown: string): string {
-  // Split off frontmatter
   const fmMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!fmMatch) {
-    // No frontmatter; wrap entire body in ## Original Content
-    return `## Original Content\n\n${markdown.trim()}\n`;
-  }
-  const [, frontmatter, body] = fmMatch;
+  if (!fmMatch) return `## Original Content\n\n${markdown.trim()}\n`;
 
-  // Demote all #/## headings (outside fences) so they don't prematurely close
-  // ## Original Content. Skip both ``` and ~~~ fences with 0-3 leading spaces.
+  const [, frontmatter, body] = fmMatch;
   let inFence = false;
   let fenceChar = "";
   const demotedBody = body.trim().split("\n").map((line) => {
-    // Detect fence open/close (``` or ~~~)
     const fenceMatch = line.match(/^[ \t]{0,3}(```|~~~)/);
     if (fenceMatch) {
       const marker = fenceMatch[1];
@@ -120,23 +70,17 @@ export function promoteToOriginalContent(markdown: string): string {
         fenceChar = "";
         return line;
       }
-      // Different fence marker inside an open fence — unmatched closer, stay in fence
       return line;
     }
     if (inFence) return line;
 
-    // Demote root-level headings: ## → ####, # → ###
     const headingMatch = line.match(/^([ \t]{0,3})(#{1,2})\s+(.+)/);
-    if (headingMatch) {
-      const [, indent, hashes, rest] = headingMatch;
-      const newLevel = hashes.length + 2;
-      return `${indent}${"#".repeat(newLevel)} ${rest}`;
-    }
-    return line;
+    if (!headingMatch) return line;
+    const [, indent, hashes, rest] = headingMatch;
+    return `${indent}${"#".repeat(hashes.length + 2)} ${rest}`;
   }).join("\n");
 
-  const ocSection = `## Original Content\n\n${demotedBody}\n`;
-  return `---\n${frontmatter}\n---\n\n${ocSection}`;
+  return `---\n${frontmatter}\n---\n\n## Original Content\n\n${demotedBody}\n`;
 }
 
 function errorMessage(error: unknown): string {
@@ -171,178 +115,19 @@ export function frontmatterString(markdown: string, key: string): string {
   }
 }
 
-function todayISO(): string {
-  const now = new Date();
-  return now.getFullYear() + "-" +
-    String(now.getMonth() + 1).padStart(2, "0") + "-" +
-    String(now.getDate()).padStart(2, "0");
-}
-
-function ensureGeneratedRegistryFrontmatter(markdown: string, workflowName: RunnableWorkflowName, context: WorkflowRunContext): string {
-  if (workflowName !== "note_to_method" && workflowName !== "raw_to_insight") return markdown;
-
-  const domain = context.domain?.trim() || "biotech";
-  const type = workflowName === "note_to_method" ? "method" : "insight";
-  const topic = context.topic?.trim() || (workflowName === "note_to_method" ? "Uncategorized" : "");
-  const date = frontmatterString(markdown, "date") || todayISO();
-  let next = markdown;
-  const defaults: Record<string, string> = {
-    type,
-    status: "draft",
-    date,
-    created: frontmatterString(markdown, "created") || date,
-    source: frontmatterString(markdown, "source") || context.path,
-    domain,
-    workflow: workflowName,
-    tags: frontmatterString(markdown, "tags") || `[${type}, ${domain}]`
-  };
-  if (workflowName === "note_to_method") {
-    defaults.topic = topic;
-    defaults.method_family = frontmatterString(markdown, "method_family") || topic;
-    defaults.tags = frontmatterString(markdown, "tags") || `[method, biotech, ${topic}]`;
-  }
-
-  for (const [key, value] of Object.entries(defaults)) {
-    if (!frontmatterString(next, key)) {
-      next = upsertFrontmatterString(next, key, value);
-    }
-  }
-  return next;
-}
-
-function resolveRawDomainTargetDir(domain: string): string {
+function resolveRawDomainTargetDir(domain: RawDomain): string {
   switch (domain) {
     case "openclaw":
       return "PARA/03Resources/01Raw/OpenClaw";
     case "ai":
       return "PARA/03Resources/01Raw/AI";
-    case "general":
-      return "PARA/03Resources/01Raw/General";
     default:
-      return "PARA/03Resources/01Raw/WeChat";
+      return "PARA/03Resources/01Raw/General";
   }
 }
 
 export class WorkflowExecutor {
   constructor(private readonly options: WorkflowExecutorOptions) {}
-
-  static conversionLabel(kind: RegistryConvertKind): string {
-    return kind === "theory"
-      ? "Theory"
-      : kind === "case"
-        ? "Case"
-        : kind === "method"
-          ? "Method"
-          : kind === "doc"
-            ? "Doc"
-            : kind === "debug"
-              ? "Debug"
-              : kind === "system"
-                ? "System"
-                : kind === "case_by_domain"
-                  ? "Case"
-                  : "Insight";
-  }
-
-  static workflowNameForKind(kind: RegistryConvertKind): RunnableWorkflowName {
-    return kind === "theory"
-      ? "note_to_theory"
-      : kind === "case"
-        ? "note_to_case"
-        : kind === "method"
-          ? "note_to_method"
-          : kind === "doc"
-            ? "note_to_doc"
-            : kind === "debug"
-              ? "note_to_debug"
-              : kind === "system"
-                ? "note_to_system"
-                : kind === "case_by_domain"
-                  ? "note_to_case_by_domain"
-                  : "raw_to_insight";
-  }
-
-  async executeRegistryConversion(params: {
-    kind: RegistryConvertKind;
-    activeFile: TFile;
-    topic?: string;
-    domain?: string;
-    startedAt?: number;
-  }): Promise<{ created: TFile; markdown: string; workflowName: RunnableWorkflowName; label: string }> {
-    const { kind, activeFile, topic, domain } = params;
-    const startedAt = params.startedAt ?? Date.now();
-    const label = WorkflowExecutor.conversionLabel(kind);
-    const action = `convert_to_${kind}`;
-    const workflowName = WorkflowExecutor.workflowNameForKind(kind);
-    const title = activeFile.basename;
-    let step = "read_note";
-
-    try {
-      const content = await this.options.app.vault.cachedRead(activeFile);
-      if (!content.trim()) throw new Error("Current note content is empty.");
-
-      step = "run_workflow";
-      const context: WorkflowRunContext = {
-        title,
-        path: activeFile.path,
-        topic,
-        domain,
-        action
-      };
-      const markdown = await this.runWorkflow(workflowName, content, context);
-
-      step = "resolve_output_path";
-      const input = { title, path: activeFile.path, content, topic, domain };
-      const resolved = kind === "theory" && topic
-        ? await resolveTheoryWorkflow(this.options.app, input, topic as TheoryTopic)
-        : kind === "theory" && domain && !topic
-          ? await resolveTheoryByDomainWorkflow(this.options.app, input, domain as "openclaw" | "ai")
-          : kind === "case" && topic
-            ? await resolveCaseWorkflow(this.options.app, input, topic as CaseTopic)
-            : kind === "doc" && domain
-              ? await resolveDocWorkflow(this.options.app, input, domain as "openclaw" | "ai")
-              : kind === "method" && topic
-                ? await resolveMethodWorkflow(this.options.app, input, topic as MethodTopic)
-                : kind === "debug" && domain
-                  ? await resolveDebugWorkflow(this.options.app, input, domain as "openclaw" | "ai")
-                  : kind === "system" && domain
-                    ? await resolveSystemWorkflow(this.options.app, input, domain as "openclaw" | "ai")
-                    : kind === "case_by_domain" && domain
-                      ? await resolveCaseByDomainWorkflow(this.options.app, input, domain as "openclaw" | "ai")
-                      : await resolveInsightWorkflow(this.options.app, input, (domain ?? "biotech") as InsightDomain);
-      const targetPath = resolveOutputPath(this.options.app, resolved.targetDir, markdown, title, label, resolved.workflow.filenameStrategy);
-
-      step = "write_target_note";
-      const created = await this.options.writeFile(targetPath, markdown, topic ? `${kind}:${topic}` : kind);
-      await logExecution(this.options.app, {
-        action,
-        workflow: workflowName,
-        sourceNote: activeFile.path,
-        targetNote: created.path,
-        domain: frontmatterString(markdown, "domain") || "biotech",
-        topic: topic ?? frontmatterString(markdown, "topic"),
-        model: this.options.currentModelName(),
-        durationMs: Date.now() - startedAt,
-        validationLevel: "PASS"
-      });
-
-      return { created, markdown, workflowName, label };
-    } catch (error) {
-      this.options.cancelPendingReply();
-      if (!wasWorkflowErrorLogged(error)) {
-        await logError(this.options.app, {
-          action,
-          workflow: workflowName,
-          sourceNote: activeFile.path,
-          step,
-          errorType: errorType(error),
-          message: errorMessage(error),
-          durationMs: Date.now() - startedAt
-        });
-      }
-      throw error;
-    }
-  }
 
   async executeWechatRaw(params: { url: string; startedAt?: number }): Promise<{ created: TFile; markdown: string }> {
     const action = "convert_to_raw";
@@ -354,13 +139,12 @@ export class WorkflowExecutor {
     try {
       const resolved = await resolveRawSkillWorkflow(this.options.app);
       const markdown = await runWechatScript(this.options.getSettings(), url);
-
       this.options.onSystemTurn("WeChat article fetched. Validating…");
 
       let patchedMarkdown = markdown;
       patchedMarkdown = normalizeRawExtractionStatus(patchedMarkdown);
       patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "domain", "general");
-      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "workflow", "wechat_to_raw");
+      patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "workflow", workflowName);
       patchedMarkdown = patchedMarkdown
         .replace(/^## 📌 原文$/gm, "## Original Content")
         .replace(/^## ⚙️ 提取记录$/gm, "## Source")
@@ -392,16 +176,15 @@ export class WorkflowExecutor {
       const created = await this.options.writeFile(targetPath, patchedMarkdown, "raw");
       await logExecution(this.options.app, {
         action,
-        workflow: resolved.workflow.name || workflowName,
+        workflow: workflowName,
         sourceNote: url,
         targetNote: created.path,
         domain: frontmatterString(patchedMarkdown, "domain"),
-        topic: frontmatterString(patchedMarkdown, "topic"),
+        topic: "",
         model: this.options.currentModelName(),
         durationMs: Date.now() - startedAt,
         validationLevel: noteResult.level
       });
-
       return { created, markdown: patchedMarkdown };
     } catch (error) {
       await logError(this.options.app, {
@@ -428,10 +211,8 @@ export class WorkflowExecutor {
       const markdown = await runPdfScript(this.options.app, this.options.getSettings(), pdfPath);
       this.options.onSystemTurn("PDF extracted. Building raw note…");
 
-      // Normalize the markdown
       let patchedMarkdown = markdown;
       patchedMarkdown = normalizeRawExtractionStatus(patchedMarkdown);
-      // Use IfMissing to preserve values already set by the python script
       patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "domain", "general");
       patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "type", "raw");
       patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "source", pdfPath);
@@ -442,12 +223,10 @@ export class WorkflowExecutor {
         frontmatterString(patchedMarkdown, "date") || new Date().toISOString().split("T")[0]
       );
       patchedMarkdown = upsertFrontmatterStringIfMissing(patchedMarkdown, "tags", "[raw, pdf]");
-      // workflow is always overridden to track which workflow generated the note
       patchedMarkdown = upsertFrontmatterString(patchedMarkdown, "workflow", workflowName);
 
       step = "write_target_note";
-      const targetDir = "PARA/03Resources/01Raw/PDF";
-      const targetPath = resolveRawOutputPath(this.options.app, targetDir, patchedMarkdown, pdfPath, undefined);
+      const targetPath = resolveRawOutputPath(this.options.app, "PARA/03Resources/01Raw/PDF", patchedMarkdown, pdfPath, undefined);
       const created = await this.options.writeFile(targetPath, patchedMarkdown, "raw");
       await logExecution(this.options.app, {
         action,
@@ -475,151 +254,6 @@ export class WorkflowExecutor {
     }
   }
 
-  async executeTranslation(params: {
-    activeFile: TFile;
-    startedAt?: number;
-  }): Promise<{ created: TFile; markdown: string }> {
-    const action = "translate_note";
-    const workflowName = "raw_to_translated";
-    const startedAt = params.startedAt ?? Date.now();
-    const { activeFile } = params;
-    const title = activeFile.basename || activeFile.name.replace(/\.md$/i, "");
-    let step = "read_note";
-
-    try {
-      const content = await this.options.app.vault.cachedRead(activeFile);
-      if (!content.trim()) throw new Error("Current note content is empty.");
-
-      step = "preValidation";
-      const inputResult = validateInput({
-        workflowName: "raw_to_translated",
-        currentNoteContent: content
-      });
-      if (inputResult.level === "FAIL") {
-        throw new Error(inputResult.reason);
-      }
-      if (inputResult.level === "WARNING") {
-        this.options.onSystemTurn(`[WARNING] ${inputResult.reason}`);
-      }
-
-      step = "build_translation_prompt";
-      const translationPrompt = [
-        "You are a professional scientific translator.",
-        "Translate the following English content to Chinese (Simplified Chinese).",
-        "Preserve all markdown formatting, headings, code blocks, emphasis, and structural elements.",
-        "Do NOT change or reinterpret the content -- translate literally and accurately.",
-        "Do NOT add explanations or notes outside the translated markdown.",
-        "",
-        "Original content:",
-        content,
-        "",
-        "Return only the translated markdown document."
-      ].join("\n");
-
-      this.options.onSystemTurn("Translating note to Chinese…");
-
-      step = "send_openclaw";
-      const replyPromise = this.options.waitForMarkdownReply();
-      const res = await this.options.getClient()?.generateMarkdown({
-        action: "generate_markdown",
-        prompt: translationPrompt,
-        title,
-        path: activeFile.path,
-        content
-      });
-
-      if (!res) throw new Error("OpenClaw client is not ready.");
-      if (!res.ok) {
-        this.options.cancelPendingReply();
-        throw new Error(res.error?.message ?? "Translation request rejected");
-      }
-
-      step = "wait_for_reply";
-      const translatedMarkdown = normalizeMarkdownArtifact(await replyPromise);
-      if (!translatedMarkdown.trim()) throw new Error("OpenClaw returned empty translation.");
-
-      step = "write_target_note";
-      // Normalize frontmatter: ensure correct metadata on translated note
-      let finalMarkdown = translatedMarkdown;
-      finalMarkdown = upsertFrontmatterString(finalMarkdown, "title", `${title} (Translated)`);
-      finalMarkdown = upsertFrontmatterString(finalMarkdown, "source", activeFile.path);
-      finalMarkdown = upsertFrontmatterString(finalMarkdown, "workflow", "raw_to_translated");
-      finalMarkdown = upsertFrontmatterString(finalMarkdown, "type", "raw");
-      finalMarkdown = upsertFrontmatterString(finalMarkdown, "status", "new");
-      finalMarkdown = upsertFrontmatterString(finalMarkdown, "tags", "[raw, translated]");
-      finalMarkdown = upsertFrontmatterString(finalMarkdown, "domain", frontmatterString(content, "domain") || "general");
-      finalMarkdown = upsertFrontmatterString(finalMarkdown, "date", new Date().toISOString().split("T")[0]);
-
-      // Ensure ## Original Content section exists with the translated body.
-      // Must run BEFORE adding ## Source — otherwise Source gets demoted into Original Content.
-      if (!hasExactMarkdownSection(finalMarkdown, "original content")) {
-        finalMarkdown = promoteToOriginalContent(finalMarkdown);
-      }
-      // Ensure ## Source section exists (runs after promote so it stays at root level)
-      if (!hasExactMarkdownSection(finalMarkdown, "source")) {
-        finalMarkdown += "\n\n## Source\n\n- Original: [[" + activeFile.path + "]]\n";
-      }
-
-      step = "postValidation";
-      const noteResult = validateNote(finalMarkdown);
-      if (noteResult.level === "FAIL") {
-        throw new Error(`Translated note failed validation: ${noteResult.message}`);
-      }
-      if (noteResult.level === "WARNING") {
-        await logWarning(this.options.app, {
-          action,
-          workflow: workflowName,
-          sourceNote: activeFile.path,
-          targetNote: "",
-          domain: frontmatterString(finalMarkdown, "domain") || "general",
-          message: noteResult.message,
-          missingFields: noteResult.missingFields,
-          missingSections: noteResult.missingSections,
-          durationMs: Date.now() - startedAt
-        });
-      }
-
-      const targetDir = "PARA/03Resources/01Raw/Translated";
-      const targetPath = resolveOutputPath(
-        this.options.app,
-        targetDir,
-        finalMarkdown,
-        title,
-        "Translation"
-      );
-      const created = await this.options.writeFile(targetPath, finalMarkdown, "translation");
-
-      await logExecution(this.options.app, {
-        action,
-        workflow: workflowName,
-        sourceNote: activeFile.path,
-        targetNote: created.path,
-        domain: frontmatterString(finalMarkdown, "domain") || "general",
-        topic: "",
-        model: this.options.currentModelName(),
-        durationMs: Date.now() - startedAt,
-        validationLevel: noteResult.level
-      });
-
-      return { created, markdown: finalMarkdown };
-    } catch (error) {
-      this.options.cancelPendingReply();
-      if (!wasWorkflowErrorLogged(error)) {
-        await logError(this.options.app, {
-          action,
-          workflow: workflowName,
-          sourceNote: activeFile.path,
-          step,
-          errorType: errorType(error),
-          message: errorMessage(error),
-          durationMs: Date.now() - startedAt
-        });
-        markWorkflowErrorLogged(error);
-      }
-      throw error;
-    }
-  }
-
   async executeMarkItDownRaw(params: { inputPath: string; domain: RawDomain; startedAt?: number }): Promise<{ created: TFile; markdown: string }> {
     const action = "convert_to_raw";
     const workflowName = "markitdown_to_raw";
@@ -629,9 +263,7 @@ export class WorkflowExecutor {
 
     try {
       const inputResult = validateInput({ workflowName, inputPath });
-      if (inputResult.level === "FAIL") {
-        throw new Error(inputResult.reason);
-      }
+      if (inputResult.level === "FAIL") throw new Error(inputResult.reason);
 
       step = "fetch_markitdown";
       const markdown = await runMarkItDownScript(this.options.app, this.options.getSettings(), inputPath);
@@ -673,7 +305,6 @@ export class WorkflowExecutor {
         durationMs: Date.now() - startedAt,
         validationLevel: noteResult.level
       });
-
       return { created, markdown: patchedMarkdown };
     } catch (error) {
       await logError(this.options.app, {
@@ -690,7 +321,7 @@ export class WorkflowExecutor {
   }
 
   async executeGenericRaw(params: {
-    domain: "biotech" | "openclaw" | "ai" | "general";
+    domain: RawDomain;
     content: string;
     startedAt?: number;
   }): Promise<{ created: TFile; markdown: string }> {
@@ -723,11 +354,10 @@ export class WorkflowExecutor {
         });
       }
 
-      step = "resolve_target_dir";
+      step = "write_target_note";
       const targetDir = resolveRawDomainTargetDir(params.domain);
       const targetPath = resolveRawOutputPath(this.options.app, targetDir, markdown, title, "raw");
       const created = await this.options.writeFile(targetPath, markdown, "raw");
-
       await logExecution(this.options.app, {
         action,
         workflow: workflowName,
@@ -739,7 +369,6 @@ export class WorkflowExecutor {
         durationMs: Date.now() - startedAt,
         validationLevel: noteResult.level
       });
-
       return { created, markdown };
     } catch (error) {
       await logError(this.options.app, {
@@ -817,10 +446,7 @@ export class WorkflowExecutor {
       if (!content.trim()) throw new Error("Current note content is empty.");
 
       step = "run_fix_frontmatter_workflow";
-      const markdown = await this.runWorkflow("fix_frontmatter", content, {
-        title,
-        path: activeFile.path
-      });
+      const markdown = await this.runWorkflow("fix_frontmatter", content, { title, path: activeFile.path });
 
       step = "write_current_note";
       return await this.options.replaceFile(activeFile, markdown);
@@ -841,7 +467,7 @@ export class WorkflowExecutor {
     }
   }
 
-  async runWorkflow(workflowName: RunnableWorkflowName, inputMarkdown: string, context: WorkflowRunContext): Promise<string> {
+  async runWorkflow(workflowName: EditableWorkflowName, inputMarkdown: string, context: WorkflowRunContext): Promise<string> {
     const startedAt = Date.now();
     const action = context.action ?? workflowName;
     let step = "validate_input";
@@ -852,13 +478,9 @@ export class WorkflowExecutor {
       step = "preValidation";
       const inputResult = validateInput({
         workflowName,
-        currentNoteContent: inputMarkdown,
-        topic: context.topic,
-        domain: context.domain
+        currentNoteContent: inputMarkdown
       });
-      if (inputResult.level === "FAIL") {
-        throw new Error(inputResult.reason);
-      }
+      if (inputResult.level === "FAIL") throw new Error(inputResult.reason);
       if (inputResult.level === "WARNING") {
         this.options.onSystemTurn(`[WARNING] ${inputResult.reason}`);
       }
@@ -867,45 +489,11 @@ export class WorkflowExecutor {
       const input = {
         title: context.title,
         path: context.path,
-        content: inputMarkdown,
-        topic: context.topic,
-        domain: context.domain
+        content: inputMarkdown
       };
-      let prompt: string;
-      if (workflowName === "rewrite_current_note") {
-        prompt = (await resolveRewriteWorkflow(this.options.app, input)).prompt;
-      } else if (workflowName === "fix_frontmatter") {
-        prompt = (await resolveFixFrontmatterWorkflow(this.options.app, input)).prompt;
-      } else if (workflowName === "raw_to_insight") {
-        prompt = (await resolveInsightWorkflow(this.options.app, input, (context.domain || "biotech") as InsightDomain)).prompt;
-      } else if (workflowName === "note_to_theory") {
-        if (context.domain && context.domain !== "biotech") {
-          prompt = (await resolveTheoryByDomainWorkflow(this.options.app, input, context.domain as "openclaw" | "ai")).prompt;
-        } else {
-          if (!context.topic) throw new Error("Missing topic for note_to_theory.");
-          prompt = (await resolveTheoryWorkflow(this.options.app, input, context.topic as TheoryTopic)).prompt;
-        }
-      } else if (workflowName === "note_to_case") {
-        if (!context.topic) throw new Error("Missing topic for note_to_case.");
-        prompt = (await resolveCaseWorkflow(this.options.app, input, context.topic as CaseTopic)).prompt;
-      } else if (workflowName === "note_to_method") {
-        if (!context.topic) throw new Error("Missing topic for note_to_method.");
-        prompt = (await resolveMethodWorkflow(this.options.app, input, context.topic as MethodTopic)).prompt;
-      } else if (workflowName === "note_to_doc") {
-        if (!context.domain) throw new Error("Missing domain for note_to_doc.");
-        prompt = (await resolveDocWorkflow(this.options.app, input, context.domain as "openclaw" | "ai")).prompt;
-      } else if (workflowName === "note_to_debug") {
-        if (!context.domain) throw new Error("Missing domain for note_to_debug.");
-        prompt = (await resolveDebugWorkflow(this.options.app, input, context.domain as "openclaw" | "ai")).prompt;
-      } else if (workflowName === "note_to_system") {
-        if (!context.domain) throw new Error("Missing domain for note_to_system.");
-        prompt = (await resolveSystemWorkflow(this.options.app, input, context.domain as "openclaw" | "ai")).prompt;
-      } else if (workflowName === "note_to_case_by_domain") {
-        if (!context.domain) throw new Error("Missing domain for note_to_case_by_domain.");
-        prompt = (await resolveCaseByDomainWorkflow(this.options.app, input, context.domain as "openclaw" | "ai")).prompt;
-      } else {
-        throw new Error(`Unsupported workflow: ${workflowName}`);
-      }
+      const prompt = workflowName === "rewrite_current_note"
+        ? (await resolveRewriteWorkflow(this.options.app, input)).prompt
+        : (await resolveFixFrontmatterWorkflow(this.options.app, input)).prompt;
 
       this.options.onSystemTurn(`Workflow ${workflowName} resolved. Sending prompt to OpenClaw…`);
 
@@ -928,22 +516,15 @@ export class WorkflowExecutor {
       this.options.onSystemTurn(`OpenClaw accepted ${workflowName}. Waiting for markdown reply…`);
 
       step = "wait_for_reply";
-      const markdown = ensureGeneratedRegistryFrontmatter(normalizeMarkdownArtifact(await replyPromise), workflowName, context);
+      const markdown = normalizeMarkdownArtifact(await replyPromise);
       if (!markdown.trim()) throw new Error("OpenClaw returned empty markdown.");
 
       step = "postValidation";
-      const skipPostValidation =
-        workflowName === "fix_frontmatter" ||
-        workflowName === "rewrite_current_note" ||
-        workflowName === "note_to_case_by_domain" ||
-        (workflowName === "note_to_theory" && context.domain && context.domain !== "biotech");
-      let validationLevel: "PASS" | "WARNING" = "PASS";
-      if (!skipPostValidation) {
+      if (workflowName === "fix_frontmatter") {
         const noteResult = validateNote(markdown);
         if (noteResult.level === "FAIL") {
           throw new Error(`Generated note failed validation: ${noteResult.message}`);
         }
-        validationLevel = noteResult.level;
         if (noteResult.level === "WARNING") {
           await logWarning(this.options.app, {
             action,
@@ -951,7 +532,6 @@ export class WorkflowExecutor {
             sourceNote: context.path,
             targetNote: context.path,
             domain: frontmatterString(markdown, "domain"),
-            topic: context.topic ?? frontmatterString(markdown, "topic"),
             message: noteResult.message,
             missingFields: noteResult.missingFields,
             missingSections: noteResult.missingSections,
@@ -966,11 +546,12 @@ export class WorkflowExecutor {
         sourceNote: context.path,
         targetNote: context.path,
         domain: frontmatterString(markdown, "domain"),
-        topic: context.topic ?? frontmatterString(markdown, "topic"),
+        topic: "",
         model: this.options.currentModelName(),
         durationMs: Date.now() - startedAt,
-        validationLevel
+        validationLevel: "PASS"
       });
+
       return markdown;
     } catch (error) {
       await logError(this.options.app, {
@@ -983,114 +564,6 @@ export class WorkflowExecutor {
         durationMs: Date.now() - startedAt
       });
       markWorkflowErrorLogged(error);
-      throw error;
-    }
-  }
-
-  private getVaultFileSystemRoot(): string {
-    const adapter = this.options.app.vault.adapter as { getBasePath?: () => string };
-    const basePath = adapter.getBasePath?.();
-    if (!basePath) throw new Error("Cannot resolve vault filesystem path: adapter.getBasePath not available");
-    return basePath;
-  }
-
-  async executeImageGeneration(params: {
-    activeFile: TFile;
-    startedAt?: number;
-  }): Promise<{ imagePath: string; imageRelativePath: string; prompt: string }> {
-    const action = "generate_image";
-    const startedAt = params.startedAt ?? Date.now();
-    const { activeFile } = params;
-    const title = activeFile.basename;
-    let step = "read_note";
-
-    const MMX_PATH = "/Users/hushaozhi/.npm-global/bin/mmx";
-    const IMAGE_DIR = "PARA/03Resources/03Domains/02AI/00image";
-
-    // Use adapter.getBasePath() to get real filesystem path
-    const vaultRootFs = this.getVaultFileSystemRoot();
-    const vaultImagesDir = `${vaultRootFs}/${IMAGE_DIR}`;
-
-    try {
-      const content = await this.options.app.vault.cachedRead(activeFile);
-      if (!content.trim()) throw new Error("Current note content is empty.");
-
-      step = "send_to_llm";
-      this.options.onSystemTurn("Generating image prompt…");
-
-      const imagePromptRequest = [
-        "Based on the following note, generate a concise English image generation prompt (1-2 sentences, suitable for DALL-E/Midjourney).",
-        "Include the main subject, scene, style, and mood. Be specific but concise.",
-        "Only return the image prompt, nothing else.",
-        "",
-        "Note title: " + title,
-        "Note content (first 1500 chars):",
-        content.substring(0, 1500)
-      ].join("\n");
-
-      const replyPromise = this.options.waitForMarkdownReply();
-      const res = await this.options.getClient()?.chatSend(imagePromptRequest);
-
-      if (!res) throw new Error("OpenClaw client is not ready.");
-      if (!res.ok) {
-        this.options.cancelPendingReply();
-        throw new Error(res.error?.message ?? "Image prompt request rejected");
-      }
-
-      step = "wait_for_prompt";
-      const imagePrompt = (await replyPromise).trim();
-      if (!imagePrompt) throw new Error("LLM returned empty image prompt.");
-
-      this.options.onSystemTurn(`Image prompt: ${imagePrompt}`);
-
-      step = "call_mmx";
-      const timestamp = Date.now();
-      const safeTitle = sanitizeFilenamePart(title).substring(0, 30);
-      const imageFilename = `${timestamp}_${safeTitle}.jpg`;
-
-      // Use execFile with argv array to avoid shell injection (no string concatenation)
-      // Include common bin directories in PATH so env-shebang scripts (e.g., #!/usr/bin/env node) can find node
-      const mmxArgs = ["image", "generate", "--resolution", "2048x1024", "--output", "json", imagePrompt];
-      const mmxOutput = require("child_process").execFileSync(MMX_PATH, mmxArgs, {
-        encoding: "utf-8",
-        timeout: 120000,
-        cwd: vaultRootFs,
-        env: { PATH: "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin" }
-      });
-      const mmxResult = JSON.parse(mmxOutput);
-      const generatedFileName = mmxResult.saved?.[0];
-      if (!generatedFileName) throw new Error("mmx did not return saved file path.");
-
-      // mmx saves relative to cwd; construct absolute path to the saved file
-      const generatedFileAbs = `${vaultRootFs}/${generatedFileName}`;
-      const fs = require("fs");
-      if (!fs.existsSync(generatedFileAbs)) {
-        throw new Error(`mmx saved file not found at: ${generatedFileAbs}`);
-      }
-      fs.mkdirSync(vaultImagesDir, { recursive: true });
-      const finalDest = `${vaultImagesDir}/${imageFilename}`;
-      fs.copyFileSync(generatedFileAbs, finalDest);
-
-      step = "append_to_note";
-      const imageRelativePath = `${IMAGE_DIR}/${imageFilename}`;
-      const imageMarkdown = `\n\n![${title}](${imageRelativePath})\n`;
-      const currentContent = await this.options.app.vault.cachedRead(activeFile);
-      await this.options.replaceFile(activeFile, currentContent + imageMarkdown);
-
-      this.options.onSystemTurn(`Image saved: ${imageFilename}`);
-
-      return { imagePath: `${vaultImagesDir}/${imageFilename}`, imageRelativePath, prompt: imagePrompt };
-    } catch (error) {
-      this.options.cancelPendingReply();
-      await logError(this.options.app, {
-        action,
-        workflow: "generate_image",
-        sourceNote: activeFile.path,
-        step,
-        errorType: errorType(error),
-        message: errorMessage(error),
-        durationMs: Date.now() - startedAt
-      });
       throw error;
     }
   }

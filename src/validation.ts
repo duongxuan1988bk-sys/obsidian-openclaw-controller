@@ -239,64 +239,6 @@ export function validateInput(context: ValidationContext): InputValidationResult
       return { level: "PASS", reason: "Input is valid for raw_to_insight." };
     }
 
-    case "raw_to_translated": {
-      if (!hasContentString) {
-        return { level: "FAIL", reason: "raw_to_translated requires a non-empty currentNoteContent." };
-      }
-      const charCount = currentNoteContent!.length;
-      if (charCount > CONTENT_SIZE_ERROR_THRESHOLD) {
-        return {
-          level: "FAIL",
-          reason: `Content is very large (${charCount} characters). Please split into smaller notes before translating.`
-        };
-      }
-      if (charCount > CONTENT_SIZE_WARNING_THRESHOLD) {
-        return {
-          level: "WARNING",
-          reason: `Content is large (${charCount} characters). Translation may take longer than usual.`
-        };
-      }
-      return { level: "PASS", reason: "Input is valid for raw_to_translated." };
-    }
-
-    case "note_to_theory": {
-      if (!hasContentString) {
-        return { level: "FAIL", reason: "note_to_theory requires a non-empty currentNoteContent." };
-      }
-      if ((currentNoteContent?.length ?? 0) <= 100) {
-        return {
-          level: "FAIL",
-          reason: "note_to_theory currentNoteContent must be longer than 100 characters."
-        };
-      }
-      // Biotech theory requires topic; openclaw/ai theory use domain_mapping and don't need topic
-      if (!topic && (!domain || domain === "biotech")) {
-        return { level: "FAIL", reason: "note_to_theory requires a topic." };
-      }
-      return { level: "PASS", reason: "Input is valid for note_to_theory." };
-    }
-
-    case "note_to_case": {
-      if (!hasContentString) {
-        return { level: "FAIL", reason: "note_to_case requires a non-empty currentNoteContent." };
-      }
-      // Biotech case requires topic; openclaw/ai case use domain_mapping and don't need topic
-      if (!topic && (!domain || domain === "biotech")) {
-        return { level: "FAIL", reason: "note_to_case requires a topic." };
-      }
-      return { level: "PASS", reason: "Input is valid for note_to_case." };
-    }
-
-    case "note_to_method": {
-      if (!hasContentString) {
-        return { level: "FAIL", reason: "note_to_method requires a non-empty currentNoteContent." };
-      }
-      if (!topic) {
-        return { level: "FAIL", reason: "note_to_method requires a topic." };
-      }
-      return { level: "PASS", reason: "Input is valid for note_to_method." };
-    }
-
     case "rewrite_current_note": {
       if (!hasContentString) {
         return { level: "FAIL", reason: "rewrite_current_note requires a non-empty currentNoteContent." };
@@ -311,19 +253,6 @@ export function validateInput(context: ValidationContext): InputValidationResult
       return { level: "PASS", reason: "Input is valid for fix_frontmatter." };
     }
 
-    case "note_to_doc":
-    case "note_to_debug":
-    case "note_to_system":
-    case "note_to_case_by_domain": {
-      if (!hasContentString) {
-        return { level: "FAIL", reason: `${workflowName} requires a non-empty currentNoteContent.` };
-      }
-      if (!domain) {
-        return { level: "FAIL", reason: `${workflowName} requires a domain (openclaw or ai).` };
-      }
-      return { level: "PASS", reason: `Input is valid for ${workflowName}.` };
-    }
-
     default:
       return { level: "FAIL", reason: `Unknown workflowName: "${workflowName}".` };
   }
@@ -333,9 +262,9 @@ export function validateInput(context: ValidationContext): InputValidationResult
 // Known note types
 // ---------------------------------------------------------------------------
 
-type NoteType = "raw" | "insight" | "theory" | "case" | "method";
+type NoteType = "raw" | "insight";
 
-const NOTE_TYPES: readonly NoteType[] = ["raw", "insight", "theory", "case", "method"];
+const NOTE_TYPES: readonly NoteType[] = ["raw", "insight"];
 
 function isKnownNoteType(value: string): value is NoteType {
   return NOTE_TYPES.includes(value as NoteType);
@@ -349,9 +278,6 @@ function isKnownNoteType(value: string): value is NoteType {
 const REQUIRED_FIELDS: Record<NoteType, readonly string[]> = {
   raw: ["type", "status", "date", "tags", "source", "domain", "workflow"],
   insight: ["type", "status", "date", "tags", "source", "domain", "workflow"],
-  theory: ["type", "status", "date", "tags", "source", "domain", "workflow", "topic"],
-  case: ["type", "status", "date", "tags", "source", "domain", "workflow", "topic", "problem_type"],
-  method: ["type", "status", "date", "tags", "source", "domain", "workflow", "topic", "method_family"],
 };
 
 /** Section headings required (or warned) per note type. */
@@ -363,18 +289,6 @@ const REQUIRED_SECTIONS: Record<NoteType, { required: readonly string[]; warned:
   insight: {
     required: ["summary", "key points"],
     warned: ["experimental relevance", "potential directions", "related notes"],
-  },
-  theory: {
-    required: ["core principle", "analytical meaning"],
-    warned: ["common pitfalls", "related notes"],
-  },
-  case: {
-    required: ["root cause", "solution"],
-    warned: ["reusable lessons", "related notes"],
-  },
-  method: {
-    required: ["purpose", "scope", "workflow", "key parameters"],
-    warned: ["principle", "acceptance criteria", "troubleshooting", "related notes"],
   },
 };
 

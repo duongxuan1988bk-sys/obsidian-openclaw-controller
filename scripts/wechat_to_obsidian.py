@@ -355,34 +355,20 @@ source: {source}
 tags: [raw, wechat]
 type: raw
 status: {status}
+domain: general
+workflow: wechat_to_raw
 ---
 
 # {title}
 
-## ⚙️ 提取记录
+## Source
 
 {notes_md}
 
-## 📌 原文
+## Original Content
 
 {content}
 {images_md}
-
----
-
-## 🧠 AI摘要（自动生成）
-
-- 核心内容：
-- 关键结论：
-- 是否与当前项目相关：
-
----
-
-## 🔗 可转化方向
-
-- [ ] Insight
-- [ ] Case
-- [ ] Theory
 """
 
 

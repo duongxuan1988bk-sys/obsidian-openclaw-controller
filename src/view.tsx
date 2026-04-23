@@ -1437,10 +1437,7 @@ export function OpenClawViewReact(props: { app: ObsidianApp; plugin: OpenClawCon
     });
   }
 
-  /**
-   * Non-biotech domains (openclaw/ai/general): generic content → raw note
-   */
-  async function convertGenericRaw(domain: "biotech" | "openclaw" | "ai" | "general", startedAt: number) {
+  async function convertGenericRaw(domain: "openclaw" | "ai" | "general", startedAt: number) {
     const workflowName = `${domain}_to_raw`;
 
     const content = await promptForRawContent();

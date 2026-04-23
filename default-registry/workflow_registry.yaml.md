@@ -30,10 +30,6 @@ workflows:
     executor_action: create_new_note
     filename_strategy: frontmatter_title
     domain_mapping:
-      biotech:
-        schema: general_insight_schema
-        prompt: general_raw_to_insight_prompt
-        path_key: insight_general
       openclaw:
         schema: openclaw_insight_schema
         prompt: openclaw_raw_to_insight_prompt

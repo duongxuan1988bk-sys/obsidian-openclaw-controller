@@ -21,54 +21,7 @@ AI workflow notes.
 );
 
 assert.match(aiInsight, /^domain: ai$/m, "AI insight keeps AI domain");
-assert.doesNotMatch(aiInsight, /^domain: biotech$/m, "AI insight is not rewritten to biotech");
-assert.doesNotMatch(aiInsight, /^topic:/m, "non-biotech insight does not receive topic");
 assert.match(aiInsight, /^created: \d{4}-\d{2}-\d{2}$/m, "missing created is added as date-only");
-
-const openclawTheory = ensureSchemaFrontmatter(
-  `---
-title: OpenClaw Theory
-domain: openclaw
-topic: N_Glycan
-tags: [theory, openclaw]
----
-
-# OpenClaw Theory
-
-## Core Principle
-
-OpenClaw architecture notes.
-`,
-  {
-    inferredType: "theory",
-    activeNotePath: "PARA/01Projects/02Openclaw/01Theory/OpenClaw Theory.md"
-  }
-);
-
-assert.match(openclawTheory, /^domain: openclaw$/m, "OpenClaw theory keeps OpenClaw domain");
-assert.doesNotMatch(openclawTheory, /^topic:/m, "non-biotech theory does not keep biotech topic");
-
-const genericTheory = ensureSchemaFrontmatter(
-  `---
-title: Generic Theory
-tags: [theory]
----
-
-# Generic Theory
-
-## Core Principle
-
-Reusable technical notes.
-`,
-  {
-    inferredType: "theory",
-    theoryTopic: "SEC",
-    activeNotePath: "PARA/03Resources/02Insight/General/Generic Theory.md"
-  }
-);
-
-assert.match(genericTheory, /^domain: general$/m, "Generic theory falls back to the general domain");
-assert.match(genericTheory, /^topic: SEC$/m, "Generic theory keeps the selected topic when provided");
 
 const createdFromDate = ensureSchemaFrontmatter(
   `---
@@ -114,7 +67,7 @@ source: failed.docx
 tags: [raw, markitdown]
 type: raw
 status: failed-extract
-domain: biotech
+domain: general
 workflow: markitdown_to_raw
 ---
 
@@ -126,7 +79,7 @@ workflow: markitdown_to_raw
 `,
   {
     inferredType: "raw",
-    activeNotePath: "PARA/03Resources/01Raw/MarkItDown/Biotech/Failed MarkItDown.md"
+    activeNotePath: "PARA/03Resources/01Raw/MarkItDown/General/Failed MarkItDown.md"
   }
 );
 
